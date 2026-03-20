@@ -10,6 +10,7 @@ import Login from "@/pages/Login";
 import LocationModule from "@/pages/LocationModule";
 import PhoneModule from "@/pages/PhoneModule";
 import UsersModule from "@/pages/UsersModule";
+import ConnectionsModule from "@/pages/ConnectionsModule";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
