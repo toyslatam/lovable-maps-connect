@@ -10,6 +10,7 @@ const navItems = [
 ];
 
 const adminItems = [
+  { to: "/connections", icon: Cable, label: "Conexiones" },
   { to: "/users", icon: Users, label: "Usuarios" },
 ];
 
