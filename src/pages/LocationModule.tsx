@@ -49,10 +49,32 @@ const LocationModule = () => {
           <h1 className="text-2xl font-bold">Localización</h1>
           <p className="text-muted-foreground text-sm mt-1">{establishments.length} establecimientos registrados</p>
         </div>
-        <Button onClick={() => { setEditing(undefined); setShowForm(true); }} className="gap-2">
-          <Plus className="w-4 h-4" />
-          Nuevo
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={importFromSheets}
+            disabled={isSyncing}
+            className="gap-2"
+          >
+            {isSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            Importar Sheets
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={exportToSheets}
+            disabled={isSyncing}
+            className="gap-2"
+          >
+            {isSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+            Actualizar Sheets
+          </Button>
+          <Button onClick={() => { setEditing(undefined); setShowForm(true); }} className="gap-2" size="sm">
+            <Plus className="w-4 h-4" />
+            Nuevo
+          </Button>
+        </div>
       </div>
 
       {/* Search bar */}
