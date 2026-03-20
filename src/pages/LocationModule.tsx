@@ -9,7 +9,7 @@ import { Establishment } from "@/types/establishment";
 type SearchField = "name" | "address" | "coords";
 
 const LocationModule = () => {
-  const { establishments, addEstablishment, updateEstablishment, deleteEstablishment, importFromSheets, exportToSheets, isSyncing } = useData();
+  const { establishments, addEstablishment, updateEstablishment, deleteEstablishment } = useData();
   const [search, setSearch] = useState("");
   const [searchField, setSearchField] = useState<SearchField>("name");
   const [showForm, setShowForm] = useState(false);
