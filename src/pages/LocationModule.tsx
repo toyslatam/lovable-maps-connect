@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { useData } from "@/context/DataContext";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, Plus, MapPin, Navigation, Pencil, Trash2, Download, Upload, Loader2 } from "lucide-react";
+import { Search, Plus, MapPin, Navigation, Pencil, Trash2 } from "lucide-react";
 import EstablishmentForm from "@/components/EstablishmentForm";
 import { Establishment } from "@/types/establishment";
 
