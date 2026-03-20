@@ -1,5 +1,7 @@
-import { createContext, useContext, useState, ReactNode } from "react";
+import { createContext, useContext, useState, ReactNode, useCallback } from "react";
 import { Establishment } from "@/types/establishment";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 const SAMPLE_DATA: Establishment[] = [
   {
@@ -49,12 +51,16 @@ interface DataContextType {
   addEstablishment: (e: Omit<Establishment, "id">) => void;
   updateEstablishment: (e: Establishment) => void;
   deleteEstablishment: (id: string) => void;
+  importFromSheets: () => Promise<void>;
+  exportToSheets: () => Promise<void>;
+  isSyncing: boolean;
 }
 
 const DataContext = createContext<DataContextType | null>(null);
 
 export function DataProvider({ children }: { children: ReactNode }) {
   const [establishments, setEstablishments] = useState<Establishment[]>(SAMPLE_DATA);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const addEstablishment = (e: Omit<Establishment, "id">) => {
     setEstablishments((prev) => [...prev, { ...e, id: crypto.randomUUID() }]);
@@ -68,8 +74,60 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setEstablishments((prev) => prev.filter((item) => item.id !== id));
   };
 
+  const importFromSheets = useCallback(async () => {
+    setIsSyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("google-sheets", {
+        body: { action: "read" },
+      });
+
+      if (error) throw new Error(error.message);
+      if (!data?.success) throw new Error(data?.error || "Error desconocido");
+
+      const imported: Establishment[] = (data.data || []).map(
+        (row: Omit<Establishment, "id">) => ({
+          ...row,
+          id: crypto.randomUUID(),
+        })
+      );
+
+      setEstablishments(imported);
+      toast.success(`${imported.length} establecimientos importados desde Google Sheets`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error al importar";
+      toast.error(msg);
+      console.error("Import error:", err);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, []);
+
+  const exportToSheets = useCallback(async () => {
+    setIsSyncing(true);
+    try {
+      const rows = establishments.map(({ name, address, latitude, longitude, phone, contactName, notes }) => ({
+        name, address, latitude, longitude, phone, contactName, notes,
+      }));
+
+      const { data, error } = await supabase.functions.invoke("google-sheets", {
+        body: { action: "write", data: rows },
+      });
+
+      if (error) throw new Error(error.message);
+      if (!data?.success) throw new Error(data?.error || "Error desconocido");
+
+      toast.success(`${rows.length} establecimientos exportados a Google Sheets`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error al exportar";
+      toast.error(msg);
+      console.error("Export error:", err);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [establishments]);
+
   return (
-    <DataContext.Provider value={{ establishments, addEstablishment, updateEstablishment, deleteEstablishment }}>
+    <DataContext.Provider value={{ establishments, addEstablishment, updateEstablishment, deleteEstablishment, importFromSheets, exportToSheets, isSyncing }}>
       {children}
     </DataContext.Provider>
   );
