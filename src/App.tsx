@@ -11,6 +11,7 @@ import LocationModule from "@/pages/LocationModule";
 import PhoneModule from "@/pages/PhoneModule";
 import UsersModule from "@/pages/UsersModule";
 import ConnectionsModule from "@/pages/ConnectionsModule";
+import SheetPreviewModule from "@/pages/SheetPreviewModule";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -39,6 +40,7 @@ const App = () => (
               <Route path="/login" element={<LoginRoute />} />
               <Route path="/" element={<ProtectedRoute><LocationModule /></ProtectedRoute>} />
               <Route path="/phone" element={<ProtectedRoute><PhoneModule /></ProtectedRoute>} />
+              <Route path="/sheet" element={<ProtectedRoute><SheetPreviewModule /></ProtectedRoute>} />
               <Route path="/connections" element={<ProtectedRoute><ConnectionsModule /></ProtectedRoute>} />
               <Route path="/users" element={<ProtectedRoute><UsersModule /></ProtectedRoute>} />
               <Route path="*" element={<NotFound />} />

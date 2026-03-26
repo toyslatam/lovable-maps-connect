@@ -12,8 +12,12 @@ interface Props {
   onClose: () => void;
 }
 
+const todayYmd = () => new Date().toISOString().slice(0, 10);
+
 export default function EstablishmentForm({ initial, onSave, onClose }: Props) {
   const [form, setForm] = useState({
+    recordDate: initial?.recordDate || todayYmd(),
+    listaNombre: initial?.listaNombre || "",
     name: initial?.name || "",
     address: initial?.address || "",
     latitude: initial?.latitude?.toString() || "",
@@ -27,6 +31,8 @@ export default function EstablishmentForm({ initial, onSave, onClose }: Props) {
     e.preventDefault();
     const data = {
       ...form,
+      recordDate: form.recordDate.trim() || todayYmd(),
+      listaNombre: form.listaNombre.trim(),
       latitude: parseFloat(form.latitude),
       longitude: parseFloat(form.longitude),
     };
@@ -52,8 +58,36 @@ export default function EstablishmentForm({ initial, onSave, onClose }: Props) {
 
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           <div className="space-y-2">
-            <Label>Nombre del establecimiento</Label>
-            <Input value={form.name} onChange={(e) => update("name", e.target.value)} required placeholder="Ej: Farmacia Central" />
+            <Label>Fecha del registro (solo día)</Label>
+            <Input
+              type="date"
+              value={form.recordDate}
+              onChange={(e) => update("recordDate", e.target.value)}
+              required
+            />
+            <p className="text-xs text-muted-foreground">Equivale a la columna A en Sheets (se ignora la hora).</p>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Nombre (columna D — lista desplegable)</Label>
+            <Input
+              value={form.listaNombre}
+              onChange={(e) => update("listaNombre", e.target.value)}
+              placeholder="Valor del desplegable &quot;Nombre&quot; en Sheets"
+            />
+            <p className="text-xs text-muted-foreground">
+              Debe coincidir con una opción válida de tu validación de datos en la columna D.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Nombre del establecimiento (columna AL)</Label>
+            <Input
+              value={form.name}
+              onChange={(e) => update("name", e.target.value)}
+              required
+              placeholder="Nombre del establecimiento en columna AL"
+            />
           </div>
 
           <div className="space-y-2">

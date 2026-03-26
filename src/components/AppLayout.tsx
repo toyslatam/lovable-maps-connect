@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { MapPin, Phone, LogOut, Menu, X, Map, Users, Cable } from "lucide-react";
+import { MapPin, Phone, LogOut, Menu, X, Map, Users, Cable, Table2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const navItems = [
   { to: "/", icon: Map, label: "Localización" },
+  { to: "/sheet", icon: Table2, label: "Vista hoja" },
   { to: "/phone", icon: Phone, label: "Contactos" },
 ];
 

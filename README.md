@@ -7,34 +7,35 @@ GeoTrack es una aplicacion web para gestionar establecimientos (localizacion, co
 - CRUD local de establecimientos en memoria (agregar/editar/eliminar).
 - Importar/exportar establecimientos con Google Sheets:
   - `read`: lee filas desde la hoja y carga el estado del cliente.
+  - `readPreview`: devuelve el rango `A:AL` en crudo (texto por celda) para la vista **Vista hoja** en la app.
   - `write`: limpia (mantiene encabezado) y reescribe el rango con los datos actuales.
 - Envio de mensajes de WhatsApp desde el modulo de "Contactos".
 
 ## Estructura relevante
-- `src/context/DataContext.tsx`: mantiene la lista de `establishments` y ejecuta `supabase.functions.invoke("google-sheets", ...)`.
+- `src/context/DataContext.tsx`: mantiene la lista de `establishments` y llama a la función vía `src/lib/invokeGoogleSheets.ts` (mensajes de error legibles).
 - `supabase/functions/google-sheets/index.ts`: Edge Function que lee/escribe Google Sheets.
 - `src/context/AuthContext.tsx`: autenticacion demo (usa `localStorage` + usuarios mock).
-- `src/pages/*Module.tsx`: modulos de UI (Localizacion, Contactos, Conexiones, Usuarios).
+- `src/pages/*Module.tsx`: modulos de UI (Localizacion, Vista hoja, Contactos, Conexiones, Usuarios).
 
 ## Flujo de sincronizacion (Google Sheets)
 - Se invoca `supabase.functions.invoke("google-sheets")` con un body tipo:
   - `{ action: "read" }`
+  - `{ action: "readPreview" }` → `{ range, values }`
   - `{ action: "write", data: rows }`
 - La Edge Function usa un Service Account de Google para generar un JWT y llamar a la API:
-  - Lee el rango `A:G`
-  - Para `write`:
-    - limpia `A2:G`
-    - asegura encabezado en `A1:G1`
-    - escribe los datos en `A2:G{N}`
+  - Lee el rango `A:AL` (fecha y bloque A–H; **nombre del establecimiento en AL**)
+  - Para `write`: escribe `A:H` y `AL` por separado (no borra columnas intermedias I–AK)
 
-### Columnas esperadas en Sheets (A:G)
-- `A`: name (Nombre)
-- `B`: address (Direccion)
-- `C`: latitude
-- `D`: longitude
-- `E`: phone
-- `F`: contactName (Contacto)
-- `G`: notes (Notas)
+### Columnas esperadas en Sheets
+- `A`: fecha (puede incluir hora; la app usa solo día/mes/año)
+- `B`: Dirección
+- `C`: Latitud
+- `D`: **Nombre** (validación de datos / lista desplegable)
+- `E`: Longitud
+- `F`: Teléfono
+- `G`: Contacto
+- `H`: Notas
+- `AL`: **Nombre del establecimiento**
 
 ## Requisitos / Variables de entorno
 
