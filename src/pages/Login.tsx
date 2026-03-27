@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { MapPin, Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
 
 const Login = () => {
   const { login } = useAuth();
@@ -40,12 +40,13 @@ const Login = () => {
           <div className="absolute top-1/2 left-1/3 w-32 h-32 rounded-full border border-sidebar-primary" />
         </div>
         <div className="relative z-10 text-center max-w-md" style={{ animation: 'slideInLeft 800ms cubic-bezier(0.16, 1, 0.3, 1) both' }}>
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-sidebar-accent mb-8">
-            <MapPin className="w-10 h-10 text-sidebar-primary" />
+          <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-[#5EA2F2]/20 mb-8">
+            <img src="/service.png" alt="SRQ" className="w-12 h-12 object-contain" />
           </div>
-          <h1 className="text-4xl font-bold text-sidebar-foreground mb-4" style={{ lineHeight: '1.1' }}>
-            GeoTrack
+          <h1 className="text-4xl font-bold text-[#9CC5F5] mb-1" style={{ lineHeight: '1.1' }}>
+            SRQ
           </h1>
+          <p className="text-[#9CC5F5]/90 text-sm mb-4">Strategee Research Quality</p>
           <p className="text-sidebar-foreground/70 text-lg leading-relaxed">
             Gestiona tus establecimientos, localización y contactos en un solo lugar.
           </p>
@@ -56,10 +57,13 @@ const Login = () => {
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="w-full max-w-sm reveal-up">
           <div className="lg:hidden flex items-center gap-3 mb-10">
-            <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center">
-              <MapPin className="w-5 h-5 text-primary-foreground" />
+            <div className="w-10 h-10 rounded-lg bg-[#5EA2F2]/20 flex items-center justify-center">
+              <img src="/service.png" alt="SRQ" className="w-6 h-6 object-contain" />
             </div>
-            <span className="text-xl font-bold">GeoTrack</span>
+            <div>
+              <p className="text-xl font-bold leading-tight text-[#4A8FE6]">SRQ</p>
+              <p className="text-[10px] leading-tight text-muted-foreground">Strategee Research Quality</p>
+            </div>
           </div>
 
           <h2 className="text-2xl font-bold mb-2">Iniciar sesión</h2>

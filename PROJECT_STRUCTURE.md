@@ -1,4 +1,4 @@
-# Estructura del proyecto (lovable-maps-connect)
+# Estructura del proyecto (SRQ)
 
 ```text
 .

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useData } from "@/context/DataContext";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -26,20 +26,19 @@ const FILTER_ALL = "__all__";
 type SearchField = "address" | "coords";
 type MapSearchMode = "establishment" | "address" | "coords";
 
-function openGoogleMapsByEstablishment(e: Establishment) {
-  const q = e.name?.trim();
-  if (!q) return;
-  window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`, "_blank");
+function getMapQuery(e: Establishment, mode: MapSearchMode): string {
+  if (mode === "establishment") return e.name?.trim() || e.address?.trim() || `${e.latitude},${e.longitude}`;
+  if (mode === "address") return e.address?.trim() || `${e.latitude},${e.longitude}`;
+  return `${e.latitude},${e.longitude}`;
 }
 
-function openGoogleMapsByAddress(e: Establishment) {
-  const addr = e.address?.trim();
-  const q = addr || `${e.latitude},${e.longitude}`;
-  window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`, "_blank");
+function mapEmbedUrl(query: string): string {
+  return `https://maps.google.com/maps?output=embed&q=${encodeURIComponent(query)}`;
 }
 
-function openGoogleMapsByCoords(e: Establishment) {
-  window.open(`https://www.google.com/maps?q=${e.latitude},${e.longitude}&z=16`, "_blank");
+function openGoogleMaps(e: Establishment, mode: MapSearchMode) {
+  const q = getMapQuery(e, mode);
+  window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`, "_blank");
 }
 
 function MapsMenu({ establishment }: { establishment: Establishment }) {
@@ -60,14 +59,14 @@ function MapsMenu({ establishment }: { establishment: Establishment }) {
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuItem
           disabled={!hasName}
-          onClick={() => openGoogleMapsByEstablishment(establishment)}
+          onClick={() => openGoogleMaps(establishment, "establishment")}
         >
           Por establecimiento (nombre)
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => openGoogleMapsByAddress(establishment)}>
+        <DropdownMenuItem onClick={() => openGoogleMaps(establishment, "address")}>
           Por dirección
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => openGoogleMapsByCoords(establishment)}>
+        <DropdownMenuItem onClick={() => openGoogleMaps(establishment, "coords")}>
           Por coordenadas (lat, long)
         </DropdownMenuItem>
       </DropdownMenuContent>
@@ -86,6 +85,8 @@ const LocationModule = () => {
   const [editing, setEditing] = useState<Establishment | undefined>();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mapSearchMode, setMapSearchMode] = useState<MapSearchMode>("coords");
+  const [mapLoadError, setMapLoadError] = useState(false);
+  const detailsPanelRef = useRef<HTMLDivElement | null>(null);
 
   const establishmentNames = useMemo(() => {
     const names = new Set<string>();
@@ -131,21 +132,25 @@ const LocationModule = () => {
     return list;
   }, [establishments, filterEstName, filterDateFrom, filterDateTo, search, searchField]);
 
-  const selected = selectedId ? processed.find((e) => e.id === selectedId) : processed[0];
+  const selected = selectedId ? processed.find((e) => e.id === selectedId) : undefined;
+  const selectedQuery = selected ? getMapQuery(selected, mapSearchMode) : "";
 
   const mapSrc = useMemo(() => {
-    const fallback = processed[0];
-    const target = selected || fallback;
-    if (!target) return "https://www.google.com/maps?q=10.48,-66.87&z=10&output=embed";
+    const target = selected;
+    if (!target) return mapEmbedUrl("10.48,-66.87");
+    return mapEmbedUrl(getMapQuery(target, mapSearchMode));
+  }, [mapSearchMode, selected]);
 
-    if (mapSearchMode === "establishment" && target.name?.trim()) {
-      return `https://www.google.com/maps?q=${encodeURIComponent(target.name.trim())}&z=15&output=embed`;
-    }
-    if (mapSearchMode === "address" && target.address?.trim()) {
-      return `https://www.google.com/maps?q=${encodeURIComponent(target.address.trim())}&z=15&output=embed`;
-    }
-    return `https://www.google.com/maps?q=${target.latitude},${target.longitude}&z=15&output=embed`;
-  }, [mapSearchMode, selected, processed]);
+  useEffect(() => {
+    setMapLoadError(false);
+  }, [mapSrc]);
+
+  const handleSelectEstablishment = (id: string) => {
+    setSelectedId(id);
+    setTimeout(() => {
+      detailsPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  };
 
   const searchFields: { value: SearchField; label: string }[] = [
     { value: "address", label: "Dirección" },
@@ -268,9 +273,8 @@ const LocationModule = () => {
         </div>
       </div>
 
-      <div className="grid lg:grid-cols-5 gap-6">
-        {/* List */}
-        <div className="lg:col-span-2 space-y-2 reveal-up reveal-up-delay-2">
+      {/* Lista de establecimientos (arriba) */}
+      <div className="space-y-2 reveal-up reveal-up-delay-2">
           {processed.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
               <MapPin className="w-10 h-10 mx-auto mb-3 opacity-40" />
@@ -283,11 +287,11 @@ const LocationModule = () => {
                 key={e.id}
                 role="button"
                 tabIndex={0}
-                onClick={() => setSelectedId(e.id)}
+                onClick={() => handleSelectEstablishment(e.id)}
                 onKeyDown={(ev) => {
                   if (ev.key === "Enter" || ev.key === " ") {
                     ev.preventDefault();
-                    setSelectedId(e.id);
+                    handleSelectEstablishment(e.id);
                   }
                 }}
                 className={`p-4 rounded-xl border cursor-pointer transition-all duration-200 hover:shadow-md active:scale-[0.98] ${
@@ -334,10 +338,12 @@ const LocationModule = () => {
               </div>
             ))
           )}
-        </div>
+      </div>
 
-        {/* Map */}
-        <div className="lg:col-span-3 reveal-up reveal-up-delay-3">
+      {/* Panel inferior: aparece al hacer clic en un registro */}
+      <div ref={detailsPanelRef} className="reveal-up reveal-up-delay-3">
+        {selected ? (
+          <div className="space-y-3">
           <div className="mb-3 flex items-center gap-2 flex-wrap">
             <span className="text-xs text-muted-foreground">Mapa por:</span>
             <button
@@ -374,20 +380,37 @@ const LocationModule = () => {
               Coordenadas
             </button>
           </div>
-          <div className="rounded-xl overflow-hidden border bg-card shadow-sm" style={{ height: "480px" }}>
-            <iframe
-              src={mapSrc}
-              width="100%"
-              height="100%"
-              style={{ border: 0 }}
-              allowFullScreen
-              loading="lazy"
-              referrerPolicy="no-referrer-when-downgrade"
-              title="Mapa de ubicación"
-            />
+          <div className="grid lg:grid-cols-4 gap-4">
+            <div className="lg:col-span-3 rounded-xl overflow-hidden border bg-card shadow-sm" style={{ height: "480px" }}>
+              <iframe
+                key={`${selected.id}-${mapSearchMode}-${selectedQuery}`}
+                src={mapSrc}
+                width="100%"
+                height="100%"
+                style={{ border: 0 }}
+                allowFullScreen
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+                title="Mapa de ubicación"
+                onError={() => setMapLoadError(true)}
+              />
+            </div>
+            <div className="rounded-xl border bg-card p-4 text-sm text-muted-foreground space-y-3">
+              <p className="font-medium text-foreground mb-1">Foto de fachada</p>
+              {selected.facadePhotoUrl?.trim() ? (
+                <img
+                  src={selected.facadePhotoUrl}
+                  alt={`Fachada de ${selected.name}`}
+                  className="w-full h-44 object-cover rounded-lg border"
+                  loading="lazy"
+                />
+              ) : (
+                <p className="text-xs">Sin foto en la columna AU.</p>
+              )}
+              <p className="text-xs break-all">URL: {selected.facadePhotoUrl || "—"}</p>
+            </div>
           </div>
-          {selected && (
-            <div className="mt-3 flex flex-col gap-2 text-sm text-muted-foreground">
+            <div className="mt-1 flex flex-col gap-2 text-sm text-muted-foreground">
               <div className="flex items-center gap-2 flex-wrap">
                 <MapPin className="w-3.5 h-3.5 text-primary shrink-0" />
                 <span className="font-medium text-foreground">{selected.name}</span>
@@ -397,40 +420,27 @@ const LocationModule = () => {
                 ) : null}
               </div>
               <span className="text-xs pl-6">{selected.address}</span>
-              <div className="pl-6 flex flex-wrap gap-2 pt-1">
-                <span className="text-xs text-muted-foreground w-full sm:w-auto sm:mr-1">Abrir Google Maps:</span>
+              <div className="pl-6 flex flex-wrap items-center gap-2 pt-1">
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
                   className="h-8 text-xs"
-                  disabled={!selected.name?.trim()}
-                  onClick={() => openGoogleMapsByEstablishment(selected)}
+                  onClick={() => openGoogleMaps(selected, mapSearchMode)}
                 >
-                  Establecimiento
+                  Abrir Google Maps ({mapSearchMode === "establishment" ? "establecimiento" : mapSearchMode === "address" ? "dirección" : "coordenadas"})
                 </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs"
-                  onClick={() => openGoogleMapsByAddress(selected)}
-                >
-                  Dirección
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs"
-                  onClick={() => openGoogleMapsByCoords(selected)}
-                >
-                  Coordenadas
-                </Button>
+                {mapLoadError ? (
+                  <span className="text-xs text-destructive">No se pudo cargar el iframe; usa el botón para abrir Maps en pestaña nueva.</span>
+                ) : null}
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        ) : (
+          <div className="rounded-xl border bg-card p-8 text-center text-muted-foreground">
+            Selecciona un establecimiento de la lista para mostrar el mapa.
+          </div>
+        )}
       </div>
 
       {showForm && (

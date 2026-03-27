@@ -1,4 +1,4 @@
-# GeoTrack - lovable-maps-connect
+# SRQ - Strategee Research Quality
 
 GeoTrack es una aplicacion web para gestionar establecimientos (localizacion, contactos y notas) y sincronizarlos con una hoja de Google Sheets a traves de una Supabase Edge Function.
 

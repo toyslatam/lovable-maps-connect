@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 /**
- * A=fecha, B=dirección, C=latitud, D="Nombre" (lista desplegable), E–H=longitud…notas, AL=nombre del establecimiento
+ * A=fecha, B=dirección, C=latitud, D="Nombre" (lista desplegable), E–H=longitud…notas, AL=nombre del establecimiento, AU=foto fachada (URL)
  */
 const COL_DATE = 0;
 const COL_ADDRESS = 1;
@@ -18,12 +18,14 @@ const COL_PHONE = 5;
 const COL_CONTACT = 6;
 const COL_NOTES = 7;
 const COL_NAME = 37; // AL
+const COL_FACADE_PHOTO = 46; // AU
 const LAST_COL_BLOCK = "H";
 
 interface SheetRow {
   recordDate: string;
   listaNombre: string;
   name: string;
+  facadePhotoUrl: string;
   address: string;
   latitude: number;
   longitude: number;
@@ -229,9 +231,9 @@ serve(async (req) => {
       });
     }
 
-    /** Valores crudos A:AL (misma lectura que read, sin filtrar ni mapear) — para vista previa en la app */
+    /** Valores crudos A:AU (misma lectura que read, sin filtrar ni mapear) — para vista previa en la app */
     if (action === "readPreview") {
-      const rangeA1 = tabRange(sheetTab || undefined, "A:AL");
+      const rangeA1 = tabRange(sheetTab || undefined, "A:AU");
       const range = encodeURIComponent(rangeA1);
       const res = await fetch(`${baseUrl}/values/${range}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -251,7 +253,7 @@ serve(async (req) => {
 
     if (action === "read") {
       const range = encodeURIComponent(
-        tabRange(sheetTab || undefined, "A:AL"),
+        tabRange(sheetTab || undefined, "A:AU"),
       );
       const res = await fetch(`${baseUrl}/values/${range}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -271,6 +273,7 @@ serve(async (req) => {
           recordDate: parseDateOnly(cell(r, COL_DATE)),
           listaNombre: cell(r, COL_LISTA_NOMBRE),
           name: cell(r, COL_NAME),
+          facadePhotoUrl: cell(r, COL_FACADE_PHOTO),
           address: cell(r, COL_ADDRESS),
           latitude: parseFloat(cell(r, COL_LAT)) || 0,
           longitude: parseFloat(cell(r, COL_LNG)) || 0,
@@ -297,11 +300,18 @@ serve(async (req) => {
       const clearAL = encodeURIComponent(
         tabRange(sheetTab || undefined, `AL2:AL${lastRow}`),
       );
+      const clearAU = encodeURIComponent(
+        tabRange(sheetTab || undefined, `AU2:AU${lastRow}`),
+      );
       await fetch(`${baseUrl}/values/${clearAH}:clear`, {
         method: "POST",
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       await fetch(`${baseUrl}/values/${clearAL}:clear`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      await fetch(`${baseUrl}/values/${clearAU}:clear`, {
         method: "POST",
         headers: { Authorization: `Bearer ${accessToken}` },
       });
@@ -340,6 +350,17 @@ serve(async (req) => {
           values: [["Nombre establecimiento"]],
         }),
       });
+      const headerAU = encodeURIComponent(tabRange(sheetTab || undefined, "AU1:AU1"));
+      await fetch(`${baseUrl}/values/${headerAU}?valueInputOption=RAW`, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          values: [["Foto fachada URL"]],
+        }),
+      });
 
       if (rows.length > 0) {
         const valuesAH = rows.map((r) => [
@@ -353,6 +374,7 @@ serve(async (req) => {
           r.notes || "",
         ]);
         const valuesAL = rows.map((r) => [r.name || ""]);
+        const valuesAU = rows.map((r) => [r.facadePhotoUrl || ""]);
 
         const dataAH = encodeURIComponent(
           tabRange(sheetTab || undefined, `A2:${LAST_COL_BLOCK}${lastRow}`),
@@ -390,6 +412,25 @@ serve(async (req) => {
         const writeALJson = await writeAL.json();
         if (!writeAL.ok) {
           throw new Error(`Sheets write error [${writeAL.status}]: ${JSON.stringify(writeALJson)}`);
+        }
+
+        const dataAU = encodeURIComponent(
+          tabRange(sheetTab || undefined, `AU2:AU${lastRow}`),
+        );
+        const writeAU = await fetch(
+          `${baseUrl}/values/${dataAU}?valueInputOption=RAW`,
+          {
+            method: "PUT",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ values: valuesAU }),
+          }
+        );
+        const writeAUJson = await writeAU.json();
+        if (!writeAU.ok) {
+          throw new Error(`Sheets write error [${writeAU.status}]: ${JSON.stringify(writeAUJson)}`);
         }
       }
 

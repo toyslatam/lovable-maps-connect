@@ -58,7 +58,7 @@ const UsersModule = () => {
 
       <div className="p-4 rounded-lg bg-muted/50 border border-dashed reveal-up reveal-up-delay-2">
         <p className="text-sm text-muted-foreground">
-          💡 La gestión completa de usuarios estará disponible al conectar con Lovable Cloud para autenticación real.
+          💡 La gestión completa de usuarios estará disponible al conectar con un proveedor de autenticación real.
         </p>
       </div>
     </div>

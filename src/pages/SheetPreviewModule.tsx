@@ -54,8 +54,9 @@ export default function SheetPreviewModule() {
             Vista de Google Sheets
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Muestra el rango <span className="font-mono text-foreground">A:AL</span> tal como está en tu hoja
-            (solo lectura). La columna <span className="font-mono">AL</span> es el nombre del establecimiento.
+            Muestra el rango <span className="font-mono text-foreground">A:AU</span> tal como está en tu hoja
+            (solo lectura). La columna <span className="font-mono">AL</span> es el nombre del establecimiento y{" "}
+            <span className="font-mono">AU</span> la foto de fachada (URL).
           </p>
         </div>
         <Button

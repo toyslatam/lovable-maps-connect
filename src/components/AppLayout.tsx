@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { MapPin, Phone, LogOut, Menu, X, Map, Users, Cable, Table2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Phone, LogOut, Menu, X, Map, Users, Cable, Table2 } from "lucide-react";
 
 const navItems = [
   { to: "/", icon: Map, label: "Localización" },
@@ -44,10 +43,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         }`}
       >
         <div className="p-6 flex items-center gap-3 border-b border-sidebar-border">
-          <div className="w-9 h-9 rounded-lg bg-sidebar-accent flex items-center justify-center">
-            <MapPin className="w-5 h-5 text-sidebar-primary" />
+          <img
+            src="/service.png"
+            alt="SRQ"
+            className="w-9 h-9 rounded-lg object-contain bg-white/60 p-0.5"
+          />
+          <div className="min-w-0">
+            <p className="text-base font-bold tracking-tight text-sidebar-foreground">SRQ</p>
+            <p className="text-[10px] leading-tight text-sidebar-foreground/70">
+              Strategee Research Quality
+            </p>
           </div>
-          <span className="text-lg font-bold text-sidebar-foreground">GeoTrack</span>
           <button
             onClick={() => setSidebarOpen(false)}
             className="ml-auto lg:hidden text-sidebar-foreground/60 hover:text-sidebar-foreground"

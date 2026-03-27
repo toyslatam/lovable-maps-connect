@@ -19,6 +19,7 @@ export default function EstablishmentForm({ initial, onSave, onClose }: Props) {
     recordDate: initial?.recordDate || todayYmd(),
     listaNombre: initial?.listaNombre || "",
     name: initial?.name || "",
+    facadePhotoUrl: initial?.facadePhotoUrl || "",
     address: initial?.address || "",
     latitude: initial?.latitude?.toString() || "",
     longitude: initial?.longitude?.toString() || "",
@@ -87,6 +88,16 @@ export default function EstablishmentForm({ initial, onSave, onClose }: Props) {
               onChange={(e) => update("name", e.target.value)}
               required
               placeholder="Nombre del establecimiento en columna AL"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Foto de fachada (URL columna AU)</Label>
+            <Input
+              type="url"
+              value={form.facadePhotoUrl}
+              onChange={(e) => update("facadePhotoUrl", e.target.value)}
+              placeholder="https://..."
             />
           </div>
 
