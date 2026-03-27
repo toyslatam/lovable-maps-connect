@@ -83,6 +83,13 @@ function openGoogleMaps(e: Establishment, mode: MapSearchMode) {
   window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`, "_blank");
 }
 
+function openStreetView(e: Establishment) {
+  const lat = Number.isFinite(e.latitude) ? e.latitude : 0;
+  const lng = Number.isFinite(e.longitude) ? e.longitude : 0;
+  const url = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`;
+  window.open(url, "_blank");
+}
+
 function MapsMenu({ establishment }: { establishment: Establishment }) {
   const hasName = Boolean(establishment.name?.trim());
   return (
@@ -590,6 +597,15 @@ const LocationModule = () => {
                   onClick={() => openGoogleMaps(selected, mapSearchMode)}
                 >
                   Abrir Google Maps ({mapSearchMode === "establishment" ? "establecimiento" : mapSearchMode === "address" ? "dirección" : "coordenadas"})
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs"
+                  onClick={() => openStreetView(selected)}
+                >
+                  Street View
                 </Button>
                 {mapLoadError ? (
                   <span className="text-xs text-destructive">No se pudo cargar el iframe; usa el botón para abrir Maps en pestaña nueva.</span>
