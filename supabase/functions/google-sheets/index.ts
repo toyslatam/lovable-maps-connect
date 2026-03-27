@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 /**
- * A=fecha, D="Nombre" (lista desplegable), AL=nombre establecimiento, AM=dirección, AU=foto, AY=latitud, AZ=longitud, BI=ciudad
+ * A=fecha, D="Nombre" (lista desplegable), AL=nombre establecimiento, AM=dirección, AU=foto, AY=latitud, AZ=longitud, BI=ciudad, BV=localizado, BW=localizado por
  */
 const COL_DATE = 0;
 const COL_LISTA_NOMBRE = 3; // D (desplegable)
@@ -20,6 +20,8 @@ const COL_FACADE_PHOTO = 46; // AU
 const COL_LAT = 50; // AY
 const COL_LNG = 51; // AZ
 const COL_CITY = 60; // BI
+const COL_LOCALIZED_STATUS = 73; // BV
+const COL_LOCALIZED_BY = 74; // BW
 
 interface SheetRow {
   recordDate: string;
@@ -27,6 +29,8 @@ interface SheetRow {
   name: string;
   city: string;
   facadePhotoUrl: string;
+  localizedStatus: string;
+  localizedBy: string;
   address: string;
   latitude: number;
   longitude: number;
@@ -232,9 +236,9 @@ serve(async (req) => {
       });
     }
 
-    /** Valores crudos A:BI (misma lectura que read, sin filtrar ni mapear) — para vista previa en la app */
+    /** Valores crudos A:BW (misma lectura que read, sin filtrar ni mapear) — para vista previa en la app */
     if (action === "readPreview") {
-      const rangeA1 = tabRange(sheetTab || undefined, "A:BI");
+      const rangeA1 = tabRange(sheetTab || undefined, "A:BW");
       const range = encodeURIComponent(rangeA1);
       const res = await fetch(`${baseUrl}/values/${range}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -254,7 +258,7 @@ serve(async (req) => {
 
     if (action === "read") {
       const range = encodeURIComponent(
-        tabRange(sheetTab || undefined, "A:BI"),
+        tabRange(sheetTab || undefined, "A:BW"),
       );
       const res = await fetch(`${baseUrl}/values/${range}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -276,6 +280,8 @@ serve(async (req) => {
           name: cell(r, COL_NAME),
           city: cell(r, COL_CITY),
           facadePhotoUrl: cell(r, COL_FACADE_PHOTO),
+          localizedStatus: cell(r, COL_LOCALIZED_STATUS),
+          localizedBy: cell(r, COL_LOCALIZED_BY),
           address: cell(r, COL_ADDRESS),
           latitude: parseFloat(cell(r, COL_LAT)) || 0,
           longitude: parseFloat(cell(r, COL_LNG)) || 0,
@@ -296,7 +302,7 @@ serve(async (req) => {
       }
 
       const lastRow = rows.length + 1;
-      const columns = ["A", "D", "F", "G", "H", "AL", "AM", "AU", "AY", "AZ", "BI"];
+      const columns = ["A", "D", "F", "G", "H", "AL", "AM", "AU", "AY", "AZ", "BI", "BV", "BW"];
 
       for (const col of columns) {
         const clearRange = encodeURIComponent(
@@ -320,6 +326,8 @@ serve(async (req) => {
         ["AY1:AY1", "Latitud"],
         ["AZ1:AZ1", "Longitud"],
         ["BI1:BI1", "Ciudad"],
+        ["BV1:BV1", "Localización"],
+        ["BW1:BW1", "Localización por"],
       ];
       for (const [rangeSuffix, header] of headersToWrite) {
         const range = encodeURIComponent(tabRange(sheetTab || undefined, rangeSuffix));
@@ -346,6 +354,8 @@ serve(async (req) => {
           ["AY", rows.map((r) => String(r.latitude ?? ""))],
           ["AZ", rows.map((r) => String(r.longitude ?? ""))],
           ["BI", rows.map((r) => r.city || "")],
+          ["BV", rows.map((r) => r.localizedStatus || "")],
+          ["BW", rows.map((r) => r.localizedBy || "")],
         ];
 
         for (const [col, values] of singleColWrites) {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useData } from "@/context/DataContext";
+import { useAuth } from "@/context/AuthContext";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -20,11 +21,13 @@ import { Search, Plus, MapPin, Navigation, Pencil, Trash2, Calendar, ChevronDown
 import EstablishmentForm from "@/components/EstablishmentForm";
 import { Establishment } from "@/types/establishment";
 import { formatRecordDateEs } from "@/lib/dateOnly";
+import { toast } from "sonner";
 
 const FILTER_ALL = "__all__";
 
 type SearchField = "address" | "coords";
 type MapSearchMode = "establishment" | "address" | "coords";
+const LOCALIZED_STATUS_OPTIONS = ["Correcta", "Corregida", "Cercana", "Recuperada", "Sin datos"] as const;
 
 function getMapQuery(e: Establishment, mode: MapSearchMode): string {
   const city = e.city?.trim();
@@ -114,7 +117,8 @@ function MapsMenu({ establishment }: { establishment: Establishment }) {
 }
 
 const LocationModule = () => {
-  const { establishments, addEstablishment, updateEstablishment, deleteEstablishment } = useData();
+  const { user } = useAuth();
+  const { establishments, addEstablishment, updateEstablishment, deleteEstablishment, saveToSheets } = useData();
   const [search, setSearch] = useState("");
   const [searchField, setSearchField] = useState<SearchField>("address");
   const [filterEstName, setFilterEstName] = useState<string>(FILTER_ALL);
@@ -126,6 +130,9 @@ const LocationModule = () => {
   const [mapSearchMode, setMapSearchMode] = useState<MapSearchMode>("coords");
   const [mapLoadError, setMapLoadError] = useState(false);
   const [facadeCandidateIndex, setFacadeCandidateIndex] = useState(0);
+  const [localizedStatus, setLocalizedStatus] = useState("");
+  const [localizedBy, setLocalizedBy] = useState("");
+  const [savingLocalized, setSavingLocalized] = useState(false);
   const detailsPanelRef = useRef<HTMLDivElement | null>(null);
 
   const establishmentNames = useMemo(() => {
@@ -196,11 +203,42 @@ const LocationModule = () => {
     setFacadeCandidateIndex(0);
   }, [selected?.id, selected?.facadePhotoUrl]);
 
+  useEffect(() => {
+    if (!selected) {
+      setLocalizedStatus("");
+      setLocalizedBy("");
+      return;
+    }
+    setLocalizedStatus(selected.localizedStatus || "");
+    setLocalizedBy(selected.localizedBy || user?.name || "");
+  }, [selected?.id, selected?.localizedStatus, selected?.localizedBy, user?.name]);
+
   const handleSelectEstablishment = (id: string) => {
     setSelectedId(id);
     setTimeout(() => {
       detailsPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 50);
+  };
+
+  const handleSaveLocalized = async () => {
+    if (!selected) return;
+    const updated: Establishment = {
+      ...selected,
+      localizedStatus: localizedStatus.trim(),
+      localizedBy: localizedBy.trim() || (user?.name || ""),
+    };
+    const nextRows = establishments.map((row) => (row.id === updated.id ? updated : row));
+    updateEstablishment(updated, { skipAutoSync: true });
+    try {
+      setSavingLocalized(true);
+      await saveToSheets(nextRows);
+      toast.success("Localización guardada en Google Sheets");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "No se pudo guardar";
+      toast.error(msg);
+    } finally {
+      setSavingLocalized(false);
+    }
   };
 
   const searchFields: { value: SearchField; label: string }[] = [
@@ -370,6 +408,16 @@ const LocationModule = () => {
                     <p className="text-xs text-muted-foreground/60 mt-1 font-mono">
                       {e.latitude.toFixed(4)}, {e.longitude.toFixed(4)}
                     </p>
+                    {e.localizedStatus ? (
+                      <p className="text-xs mt-1">
+                        <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
+                          {e.localizedStatus}
+                        </span>
+                        {e.localizedBy ? (
+                          <span className="text-muted-foreground ml-2">por {e.localizedBy}</span>
+                        ) : null}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="flex gap-1 shrink-0">
                     <MapsMenu establishment={e} />
@@ -486,6 +534,53 @@ const LocationModule = () => {
               {selected.city ? (
                 <span className="text-xs pl-6">Ciudad: {selected.city}</span>
               ) : null}
+              <div className="pl-6 pt-2 grid sm:grid-cols-3 gap-2 items-end">
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Localizado (BV)</Label>
+                  <Select value={localizedStatus || "__empty__"} onValueChange={(v) => setLocalizedStatus(v === "__empty__" ? "" : v)}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="Selecciona estado" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__empty__">Sin estado</SelectItem>
+                      {LOCALIZED_STATUS_OPTIONS.map((status) => (
+                        <SelectItem key={status} value={status}>{status}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1 sm:col-span-2">
+                  <Label className="text-xs text-muted-foreground">Localizado por (BW)</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={localizedBy}
+                      onChange={(e) => setLocalizedBy(e.target.value)}
+                      placeholder="Nombre de usuario"
+                      className="h-8 text-xs"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 text-xs shrink-0"
+                      onClick={() => setLocalizedBy(user?.name || "")}
+                    >
+                      Mi nombre
+                    </Button>
+                  </div>
+                </div>
+              </div>
+              <div className="pl-6">
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-8 text-xs"
+                  onClick={handleSaveLocalized}
+                  disabled={savingLocalized}
+                >
+                  {savingLocalized ? "Guardando..." : "Guardar localización"}
+                </Button>
+              </div>
               <div className="pl-6 flex flex-wrap items-center gap-2 pt-1">
                 <Button
                   type="button"

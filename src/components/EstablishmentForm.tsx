@@ -21,6 +21,8 @@ export default function EstablishmentForm({ initial, onSave, onClose }: Props) {
     name: initial?.name || "",
     facadePhotoUrl: initial?.facadePhotoUrl || "",
     city: initial?.city || "",
+    localizedStatus: initial?.localizedStatus || "",
+    localizedBy: initial?.localizedBy || "",
     address: initial?.address || "",
     latitude: initial?.latitude?.toString() || "",
     longitude: initial?.longitude?.toString() || "",

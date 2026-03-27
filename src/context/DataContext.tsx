@@ -6,8 +6,9 @@ import { invokeGoogleSheets } from "@/lib/invokeGoogleSheets";
 interface DataContextType {
   establishments: Establishment[];
   addEstablishment: (e: Omit<Establishment, "id">) => void;
-  updateEstablishment: (e: Establishment) => void;
+  updateEstablishment: (e: Establishment, options?: { skipAutoSync?: boolean }) => void;
   deleteEstablishment: (id: string) => void;
+  saveToSheets: (rowsOverride?: Establishment[]) => Promise<void>;
   connectToSheet: (sheetId: string, sheetTab?: string) => Promise<void>;
   syncNow: () => Promise<void>;
   testConnection: () => Promise<void>;
@@ -21,7 +22,7 @@ interface DataContextType {
   autoSync: boolean;
   setAutoSync: (v: boolean) => void;
   connectionStatus: "unknown" | "connected" | "error";
-  /** Lee A:BI tal como está en Google Sheets (texto crudo, para vista previa). */
+  /** Lee A:BW tal como está en Google Sheets (texto crudo, para vista previa). */
   fetchSheetPreview: () => Promise<{ range: string; values: string[][] }>;
 }
 
@@ -77,13 +78,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
       listaNombre: e.listaNombre?.trim() ?? "",
       facadePhotoUrl: e.facadePhotoUrl?.trim() ?? "",
       city: e.city?.trim() ?? "",
+      localizedStatus: e.localizedStatus?.trim() ?? "",
+      localizedBy: e.localizedBy?.trim() ?? "",
       recordDate: e.recordDate?.trim() || today,
       id: crypto.randomUUID(),
     }]);
   };
 
-  const updateEstablishment = (e: Establishment) => {
-    shouldPushChanges.current = true;
+  const updateEstablishment = (e: Establishment, options?: { skipAutoSync?: boolean }) => {
+    shouldPushChanges.current = !options?.skipAutoSync;
     setEstablishments((prev) => prev.map((item) => (item.id === e.id ? e : item)));
   };
 
@@ -128,6 +131,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
           name: row.name ?? "",
           facadePhotoUrl: row.facadePhotoUrl ?? "",
           city: row.city ?? "",
+          localizedStatus: row.localizedStatus ?? "",
+          localizedBy: row.localizedBy ?? "",
           address: row.address ?? "",
           latitude: typeof row.latitude === "number" ? row.latitude : 0,
           longitude: typeof row.longitude === "number" ? row.longitude : 0,
@@ -154,19 +159,22 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   }, [connectedSheetId, connectedSheetTab]);
 
-  const exportToSheets = useCallback(async (silent = false) => {
+  const exportToSheets = useCallback(async (silent = false, rowsOverride?: Establishment[]) => {
     if (!connectedSheetId) {
       throw new Error("Debes conectar una hoja de Google Sheets");
     }
 
     setIsSyncing(true);
     try {
-      const rows = establishments.map(({
+      const source = rowsOverride ?? establishments;
+      const rows = source.map(({
         recordDate,
         listaNombre,
         name,
         facadePhotoUrl,
         city,
+        localizedStatus,
+        localizedBy,
         address,
         latitude,
         longitude,
@@ -179,6 +187,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
         name,
         facadePhotoUrl,
         city,
+        localizedStatus,
+        localizedBy,
         address,
         latitude,
         longitude,
@@ -213,6 +223,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   }, [connectedSheetId, connectedSheetTab, establishments]);
 
+  const saveToSheets = useCallback(async (rowsOverride?: Establishment[]) => {
+    await exportToSheets(false, rowsOverride);
+  }, [exportToSheets]);
+
   const connectToSheet = useCallback(async (sheetId: string, sheetTab?: string) => {
     setConnectedSheetId(sheetId);
     if (sheetTab !== undefined) {
@@ -239,7 +253,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     const data = await invokeGoogleSheets(body);
 
     return {
-      range: typeof data.range === "string" ? data.range : "A:BI",
+      range: typeof data.range === "string" ? data.range : "A:BW",
       values: Array.isArray(data.values) ? (data.values as string[][]) : [],
     };
   }, [connectedSheetId, connectedSheetTab]);
@@ -291,7 +305,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   return (
     <DataContext.Provider value={{
       establishments, addEstablishment, updateEstablishment, deleteEstablishment,
-      connectToSheet, syncNow, testConnection, loadSheetTabs, fetchSheetPreview,
+      saveToSheets, connectToSheet, syncNow, testConnection, loadSheetTabs, fetchSheetPreview,
       connectedSheetId, setConnectedSheetId,
       connectedSheetTab, setConnectedSheetTab,
       isSyncing, lastSyncTime, autoSync, setAutoSync, connectionStatus,

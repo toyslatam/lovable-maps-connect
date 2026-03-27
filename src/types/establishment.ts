@@ -10,6 +10,10 @@ export interface Establishment {
   facadePhotoUrl: string;
   /** Ciudad (columna BI en Sheets). */
   city: string;
+  /** Estado de localización (columna BV en Sheets). */
+  localizedStatus: string;
+  /** Usuario que localizó (columna BW en Sheets). */
+  localizedBy: string;
   /** Dirección (columna AM en Sheets). */
   address: string;
   /** Latitud (columna AY en Sheets). */
