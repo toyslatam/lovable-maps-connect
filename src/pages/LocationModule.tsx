@@ -24,6 +24,7 @@ import { formatRecordDateEs } from "@/lib/dateOnly";
 const FILTER_ALL = "__all__";
 
 type SearchField = "address" | "coords";
+type MapSearchMode = "establishment" | "address" | "coords";
 
 function openGoogleMapsByEstablishment(e: Establishment) {
   const q = e.name?.trim();
@@ -84,6 +85,7 @@ const LocationModule = () => {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Establishment | undefined>();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [mapSearchMode, setMapSearchMode] = useState<MapSearchMode>("coords");
 
   const establishmentNames = useMemo(() => {
     const names = new Set<string>();
@@ -131,9 +133,19 @@ const LocationModule = () => {
 
   const selected = selectedId ? processed.find((e) => e.id === selectedId) : processed[0];
 
-  const mapSrc = selected
-    ? `https://www.google.com/maps?q=${selected.latitude},${selected.longitude}&z=15&output=embed`
-    : `https://www.google.com/maps?q=${processed[0]?.latitude || 10.48},${processed[0]?.longitude || -66.87}&z=10&output=embed`;
+  const mapSrc = useMemo(() => {
+    const fallback = processed[0];
+    const target = selected || fallback;
+    if (!target) return "https://www.google.com/maps?q=10.48,-66.87&z=10&output=embed";
+
+    if (mapSearchMode === "establishment" && target.name?.trim()) {
+      return `https://www.google.com/maps?q=${encodeURIComponent(target.name.trim())}&z=15&output=embed`;
+    }
+    if (mapSearchMode === "address" && target.address?.trim()) {
+      return `https://www.google.com/maps?q=${encodeURIComponent(target.address.trim())}&z=15&output=embed`;
+    }
+    return `https://www.google.com/maps?q=${target.latitude},${target.longitude}&z=15&output=embed`;
+  }, [mapSearchMode, selected, processed]);
 
   const searchFields: { value: SearchField; label: string }[] = [
     { value: "address", label: "Dirección" },
@@ -209,7 +221,7 @@ const LocationModule = () => {
       <div className="flex flex-col gap-4 reveal-up reveal-up-delay-1">
         <div className="space-y-2 max-w-xl">
           <Label htmlFor="filter-est-name" className="text-sm font-medium">
-            Nombre del establecimiento (columna AL)
+            Nombre del establecimiento
           </Label>
           <Select value={filterEstName} onValueChange={setFilterEstName}>
             <SelectTrigger id="filter-est-name" className="h-10 w-full sm:max-w-md">
@@ -326,6 +338,42 @@ const LocationModule = () => {
 
         {/* Map */}
         <div className="lg:col-span-3 reveal-up reveal-up-delay-3">
+          <div className="mb-3 flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-muted-foreground">Mapa por:</span>
+            <button
+              type="button"
+              onClick={() => setMapSearchMode("establishment")}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                mapSearchMode === "establishment"
+                  ? "bg-primary text-primary-foreground"
+                  : "border text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Nombre establecimiento
+            </button>
+            <button
+              type="button"
+              onClick={() => setMapSearchMode("address")}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                mapSearchMode === "address"
+                  ? "bg-primary text-primary-foreground"
+                  : "border text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Dirección
+            </button>
+            <button
+              type="button"
+              onClick={() => setMapSearchMode("coords")}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                mapSearchMode === "coords"
+                  ? "bg-primary text-primary-foreground"
+                  : "border text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Coordenadas
+            </button>
+          </div>
           <div className="rounded-xl overflow-hidden border bg-card shadow-sm" style={{ height: "480px" }}>
             <iframe
               src={mapSrc}
