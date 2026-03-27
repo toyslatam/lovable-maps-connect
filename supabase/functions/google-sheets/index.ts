@@ -7,24 +7,25 @@ const corsHeaders = {
 };
 
 /**
- * A=fecha, B=dirección, C=latitud, D="Nombre" (lista desplegable), E–H=longitud…notas, AL=nombre del establecimiento, AU=foto fachada (URL)
+ * A=fecha, D="Nombre" (lista desplegable), AL=nombre establecimiento, AM=dirección, AU=foto, AY=latitud, AZ=longitud, BI=ciudad
  */
 const COL_DATE = 0;
-const COL_ADDRESS = 1;
-const COL_LAT = 2;
 const COL_LISTA_NOMBRE = 3; // D (desplegable)
-const COL_LNG = 4;
 const COL_PHONE = 5;
 const COL_CONTACT = 6;
 const COL_NOTES = 7;
 const COL_NAME = 37; // AL
+const COL_ADDRESS = 38; // AM
 const COL_FACADE_PHOTO = 46; // AU
-const LAST_COL_BLOCK = "H";
+const COL_LAT = 50; // AY
+const COL_LNG = 51; // AZ
+const COL_CITY = 60; // BI
 
 interface SheetRow {
   recordDate: string;
   listaNombre: string;
   name: string;
+  city: string;
   facadePhotoUrl: string;
   address: string;
   latitude: number;
@@ -231,9 +232,9 @@ serve(async (req) => {
       });
     }
 
-    /** Valores crudos A:AU (misma lectura que read, sin filtrar ni mapear) — para vista previa en la app */
+    /** Valores crudos A:BI (misma lectura que read, sin filtrar ni mapear) — para vista previa en la app */
     if (action === "readPreview") {
-      const rangeA1 = tabRange(sheetTab || undefined, "A:AU");
+      const rangeA1 = tabRange(sheetTab || undefined, "A:BI");
       const range = encodeURIComponent(rangeA1);
       const res = await fetch(`${baseUrl}/values/${range}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -253,7 +254,7 @@ serve(async (req) => {
 
     if (action === "read") {
       const range = encodeURIComponent(
-        tabRange(sheetTab || undefined, "A:AU"),
+        tabRange(sheetTab || undefined, "A:BI"),
       );
       const res = await fetch(`${baseUrl}/values/${range}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -273,6 +274,7 @@ serve(async (req) => {
           recordDate: parseDateOnly(cell(r, COL_DATE)),
           listaNombre: cell(r, COL_LISTA_NOMBRE),
           name: cell(r, COL_NAME),
+          city: cell(r, COL_CITY),
           facadePhotoUrl: cell(r, COL_FACADE_PHOTO),
           address: cell(r, COL_ADDRESS),
           latitude: parseFloat(cell(r, COL_LAT)) || 0,
@@ -294,143 +296,77 @@ serve(async (req) => {
       }
 
       const lastRow = rows.length + 1;
-      const clearAH = encodeURIComponent(
-        tabRange(sheetTab || undefined, `A2:${LAST_COL_BLOCK}${lastRow}`),
-      );
-      const clearAL = encodeURIComponent(
-        tabRange(sheetTab || undefined, `AL2:AL${lastRow}`),
-      );
-      const clearAU = encodeURIComponent(
-        tabRange(sheetTab || undefined, `AU2:AU${lastRow}`),
-      );
-      await fetch(`${baseUrl}/values/${clearAH}:clear`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      await fetch(`${baseUrl}/values/${clearAL}:clear`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      await fetch(`${baseUrl}/values/${clearAU}:clear`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
+      const columns = ["A", "D", "F", "G", "H", "AL", "AM", "AU", "AY", "AZ", "BI"];
 
-      const headerAH = encodeURIComponent(
-        tabRange(sheetTab || undefined, `A1:${LAST_COL_BLOCK}1`),
-      );
-      await fetch(`${baseUrl}/values/${headerAH}?valueInputOption=RAW`, {
-        method: "PUT",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          values: [[
-            "Fecha",
-            "Dirección",
-            "Latitud",
-            "Nombre",
-            "Longitud",
-            "Teléfono",
-            "Contacto",
-            "Notas",
-          ]],
-        }),
-      });
+      for (const col of columns) {
+        const clearRange = encodeURIComponent(
+          tabRange(sheetTab || undefined, `${col}2:${col}${lastRow}`),
+        );
+        await fetch(`${baseUrl}/values/${clearRange}:clear`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+      }
 
-      const headerAL = encodeURIComponent(tabRange(sheetTab || undefined, "AL1:AL1"));
-      await fetch(`${baseUrl}/values/${headerAL}?valueInputOption=RAW`, {
-        method: "PUT",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          values: [["Nombre establecimiento"]],
-        }),
-      });
-      const headerAU = encodeURIComponent(tabRange(sheetTab || undefined, "AU1:AU1"));
-      await fetch(`${baseUrl}/values/${headerAU}?valueInputOption=RAW`, {
-        method: "PUT",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          values: [["Foto fachada URL"]],
-        }),
-      });
+      const headersToWrite: Array<[string, string]> = [
+        ["A1:A1", "Fecha"],
+        ["D1:D1", "Nombre"],
+        ["F1:F1", "Teléfono"],
+        ["G1:G1", "Contacto"],
+        ["H1:H1", "Notas"],
+        ["AL1:AL1", "Nombre establecimiento"],
+        ["AM1:AM1", "Dirección"],
+        ["AU1:AU1", "Foto fachada URL"],
+        ["AY1:AY1", "Latitud"],
+        ["AZ1:AZ1", "Longitud"],
+        ["BI1:BI1", "Ciudad"],
+      ];
+      for (const [rangeSuffix, header] of headersToWrite) {
+        const range = encodeURIComponent(tabRange(sheetTab || undefined, rangeSuffix));
+        await fetch(`${baseUrl}/values/${range}?valueInputOption=RAW`, {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ values: [[header]] }),
+        });
+      }
 
       if (rows.length > 0) {
-        const valuesAH = rows.map((r) => [
-          r.recordDate || "",
-          r.address || "",
-          String(r.latitude ?? ""),
-          r.listaNombre || "",
-          String(r.longitude ?? ""),
-          r.phone || "",
-          r.contactName || "",
-          r.notes || "",
-        ]);
-        const valuesAL = rows.map((r) => [r.name || ""]);
-        const valuesAU = rows.map((r) => [r.facadePhotoUrl || ""]);
+        const singleColWrites: Array<[string, string[]]> = [
+          ["A", rows.map((r) => r.recordDate || "")],
+          ["D", rows.map((r) => r.listaNombre || "")],
+          ["F", rows.map((r) => r.phone || "")],
+          ["G", rows.map((r) => r.contactName || "")],
+          ["H", rows.map((r) => r.notes || "")],
+          ["AL", rows.map((r) => r.name || "")],
+          ["AM", rows.map((r) => r.address || "")],
+          ["AU", rows.map((r) => r.facadePhotoUrl || "")],
+          ["AY", rows.map((r) => String(r.latitude ?? ""))],
+          ["AZ", rows.map((r) => String(r.longitude ?? ""))],
+          ["BI", rows.map((r) => r.city || "")],
+        ];
 
-        const dataAH = encodeURIComponent(
-          tabRange(sheetTab || undefined, `A2:${LAST_COL_BLOCK}${lastRow}`),
-        );
-        const writeAH = await fetch(
-          `${baseUrl}/values/${dataAH}?valueInputOption=RAW`,
-          {
-            method: "PUT",
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ values: valuesAH }),
+        for (const [col, values] of singleColWrites) {
+          const dataRange = encodeURIComponent(
+            tabRange(sheetTab || undefined, `${col}2:${col}${lastRow}`),
+          );
+          const writeRes = await fetch(
+            `${baseUrl}/values/${dataRange}?valueInputOption=RAW`,
+            {
+              method: "PUT",
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ values: values.map((v) => [v]) }),
+            }
+          );
+          const writeJson = await writeRes.json();
+          if (!writeRes.ok) {
+            throw new Error(`Sheets write error [${writeRes.status}]: ${JSON.stringify(writeJson)}`);
           }
-        );
-        const writeAHJson = await writeAH.json();
-        if (!writeAH.ok) {
-          throw new Error(`Sheets write error [${writeAH.status}]: ${JSON.stringify(writeAHJson)}`);
-        }
-
-        const dataAL = encodeURIComponent(
-          tabRange(sheetTab || undefined, `AL2:AL${lastRow}`),
-        );
-        const writeAL = await fetch(
-          `${baseUrl}/values/${dataAL}?valueInputOption=RAW`,
-          {
-            method: "PUT",
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ values: valuesAL }),
-          }
-        );
-        const writeALJson = await writeAL.json();
-        if (!writeAL.ok) {
-          throw new Error(`Sheets write error [${writeAL.status}]: ${JSON.stringify(writeALJson)}`);
-        }
-
-        const dataAU = encodeURIComponent(
-          tabRange(sheetTab || undefined, `AU2:AU${lastRow}`),
-        );
-        const writeAU = await fetch(
-          `${baseUrl}/values/${dataAU}?valueInputOption=RAW`,
-          {
-            method: "PUT",
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ values: valuesAU }),
-          }
-        );
-        const writeAUJson = await writeAU.json();
-        if (!writeAU.ok) {
-          throw new Error(`Sheets write error [${writeAU.status}]: ${JSON.stringify(writeAUJson)}`);
         }
       }
 

@@ -27,8 +27,18 @@ type SearchField = "address" | "coords";
 type MapSearchMode = "establishment" | "address" | "coords";
 
 function getMapQuery(e: Establishment, mode: MapSearchMode): string {
-  if (mode === "establishment") return e.name?.trim() || e.address?.trim() || `${e.latitude},${e.longitude}`;
-  if (mode === "address") return e.address?.trim() || `${e.latitude},${e.longitude}`;
+  const city = e.city?.trim();
+  if (mode === "establishment") {
+    const name = e.name?.trim();
+    const address = e.address?.trim();
+    if (name && city) return `${name}, ${city}`;
+    return name || (address && city ? `${address}, ${city}` : address) || `${e.latitude},${e.longitude}`;
+  }
+  if (mode === "address") {
+    const address = e.address?.trim();
+    if (address && city) return `${address}, ${city}`;
+    return address || `${e.latitude},${e.longitude}`;
+  }
   return `${e.latitude},${e.longitude}`;
 }
 
@@ -117,7 +127,9 @@ const LocationModule = () => {
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter((e) => {
-        if (searchField === "address") return e.address.toLowerCase().includes(q);
+        if (searchField === "address") {
+          return `${e.address} ${e.city || ""}`.toLowerCase().includes(q);
+        }
         return `${e.latitude},${e.longitude}`.includes(q);
       });
     }
@@ -313,6 +325,9 @@ const LocationModule = () => {
                       Fecha: <span className="font-medium text-foreground">{formatRecordDateEs(e.recordDate)}</span>
                     </p>
                     <p className="text-xs text-muted-foreground mt-0.5 truncate">{e.address}</p>
+                    {e.city ? (
+                      <p className="text-xs text-muted-foreground/80 mt-0.5 truncate">Ciudad: {e.city}</p>
+                    ) : null}
                     <p className="text-xs text-muted-foreground/60 mt-1 font-mono">
                       {e.latitude.toFixed(4)}, {e.longitude.toFixed(4)}
                     </p>
@@ -420,6 +435,9 @@ const LocationModule = () => {
                 ) : null}
               </div>
               <span className="text-xs pl-6">{selected.address}</span>
+              {selected.city ? (
+                <span className="text-xs pl-6">Ciudad: {selected.city}</span>
+              ) : null}
               <div className="pl-6 flex flex-wrap items-center gap-2 pt-1">
                 <Button
                   type="button"

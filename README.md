@@ -7,7 +7,7 @@ GeoTrack es una aplicacion web para gestionar establecimientos (localizacion, co
 - CRUD local de establecimientos en memoria (agregar/editar/eliminar).
 - Importar/exportar establecimientos con Google Sheets:
   - `read`: lee filas desde la hoja y carga el estado del cliente.
-  - `readPreview`: devuelve el rango `A:AL` en crudo (texto por celda) para la vista **Vista hoja** en la app.
+  - `readPreview`: devuelve el rango `A:BI` en crudo (texto por celda) para la vista **Vista hoja** en la app.
   - `write`: limpia (mantiene encabezado) y reescribe el rango con los datos actuales.
 - Envio de mensajes de WhatsApp desde el modulo de "Contactos".
 
@@ -23,19 +23,21 @@ GeoTrack es una aplicacion web para gestionar establecimientos (localizacion, co
   - `{ action: "readPreview" }` → `{ range, values }`
   - `{ action: "write", data: rows }`
 - La Edge Function usa un Service Account de Google para generar un JWT y llamar a la API:
-  - Lee el rango `A:AL` (fecha y bloque A–H; **nombre del establecimiento en AL**)
-  - Para `write`: escribe `A:H` y `AL` por separado (no borra columnas intermedias I–AK)
+  - Lee el rango `A:BI` (con campos principales en columnas separadas)
+  - Para `write`: escribe columnas puntuales `A`, `D`, `F`, `G`, `H`, `AL`, `AM`, `AU`, `AY`, `AZ`, `BI`
 
 ### Columnas esperadas en Sheets
 - `A`: fecha (puede incluir hora; la app usa solo día/mes/año)
-- `B`: Dirección
-- `C`: Latitud
 - `D`: **Nombre** (validación de datos / lista desplegable)
-- `E`: Longitud
 - `F`: Teléfono
 - `G`: Contacto
 - `H`: Notas
 - `AL`: **Nombre del establecimiento**
+- `AM`: **Dirección**
+- `AU`: **Foto de fachada (URL)**
+- `AY`: **Latitud**
+- `AZ`: **Longitud**
+- `BI`: **Ciudad**
 
 ## Requisitos / Variables de entorno
 

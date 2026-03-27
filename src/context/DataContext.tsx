@@ -21,7 +21,7 @@ interface DataContextType {
   autoSync: boolean;
   setAutoSync: (v: boolean) => void;
   connectionStatus: "unknown" | "connected" | "error";
-  /** Lee A:AU tal como está en Google Sheets (texto crudo, para vista previa). */
+  /** Lee A:BI tal como está en Google Sheets (texto crudo, para vista previa). */
   fetchSheetPreview: () => Promise<{ range: string; values: string[][] }>;
 }
 
@@ -76,6 +76,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       ...e,
       listaNombre: e.listaNombre?.trim() ?? "",
       facadePhotoUrl: e.facadePhotoUrl?.trim() ?? "",
+      city: e.city?.trim() ?? "",
       recordDate: e.recordDate?.trim() || today,
       id: crypto.randomUUID(),
     }]);
@@ -126,6 +127,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
           listaNombre: row.listaNombre ?? "",
           name: row.name ?? "",
           facadePhotoUrl: row.facadePhotoUrl ?? "",
+          city: row.city ?? "",
           address: row.address ?? "",
           latitude: typeof row.latitude === "number" ? row.latitude : 0,
           longitude: typeof row.longitude === "number" ? row.longitude : 0,
@@ -164,6 +166,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         listaNombre,
         name,
         facadePhotoUrl,
+        city,
         address,
         latitude,
         longitude,
@@ -175,6 +178,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         listaNombre,
         name,
         facadePhotoUrl,
+        city,
         address,
         latitude,
         longitude,
@@ -235,7 +239,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     const data = await invokeGoogleSheets(body);
 
     return {
-      range: typeof data.range === "string" ? data.range : "A:AU",
+      range: typeof data.range === "string" ? data.range : "A:BI",
       values: Array.isArray(data.values) ? (data.values as string[][]) : [],
     };
   }, [connectedSheetId, connectedSheetTab]);

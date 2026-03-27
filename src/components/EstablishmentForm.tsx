@@ -20,6 +20,7 @@ export default function EstablishmentForm({ initial, onSave, onClose }: Props) {
     listaNombre: initial?.listaNombre || "",
     name: initial?.name || "",
     facadePhotoUrl: initial?.facadePhotoUrl || "",
+    city: initial?.city || "",
     address: initial?.address || "",
     latitude: initial?.latitude?.toString() || "",
     longitude: initial?.longitude?.toString() || "",
@@ -104,6 +105,15 @@ export default function EstablishmentForm({ initial, onSave, onClose }: Props) {
           <div className="space-y-2">
             <Label>Dirección</Label>
             <Input value={form.address} onChange={(e) => update("address", e.target.value)} required placeholder="Ej: Av. Principal 123" />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Ciudad (columna BI)</Label>
+            <Input
+              value={form.city}
+              onChange={(e) => update("city", e.target.value)}
+              placeholder="Ej: Caracas"
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-3">

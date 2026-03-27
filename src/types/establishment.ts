@@ -8,8 +8,13 @@ export interface Establishment {
   name: string;
   /** URL de la foto de fachada (columna AU en Sheets). */
   facadePhotoUrl: string;
+  /** Ciudad (columna BI en Sheets). */
+  city: string;
+  /** Dirección (columna AM en Sheets). */
   address: string;
+  /** Latitud (columna AY en Sheets). */
   latitude: number;
+  /** Longitud (columna AZ en Sheets). */
   longitude: number;
   phone: string;
   contactName: string;
