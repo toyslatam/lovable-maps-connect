@@ -46,6 +46,35 @@ function mapEmbedUrl(query: string): string {
   return `https://maps.google.com/maps?output=embed&q=${encodeURIComponent(query)}`;
 }
 
+function extractGoogleDriveFileId(url: string): string | null {
+  const s = url.trim();
+  if (!s) return null;
+
+  let m = s.match(/\/file\/d\/([^/]+)/i);
+  if (m?.[1]) return m[1];
+
+  m = s.match(/[?&]id=([^&]+)/i);
+  if (m?.[1]) return m[1];
+
+  return null;
+}
+
+function facadeImageCandidates(rawUrl: string): string[] {
+  const url = rawUrl.trim();
+  if (!url) return [];
+
+  const id = extractGoogleDriveFileId(url);
+  if (!id) return [url];
+
+  // Distintas variantes porque algunos links de Drive bloquean hotlink según permisos.
+  return [
+    `https://drive.google.com/thumbnail?id=${id}&sz=w1200`,
+    `https://drive.google.com/uc?export=view&id=${id}`,
+    `https://lh3.googleusercontent.com/d/${id}=w1200`,
+    url,
+  ];
+}
+
 function openGoogleMaps(e: Establishment, mode: MapSearchMode) {
   const q = getMapQuery(e, mode);
   window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`, "_blank");
@@ -96,6 +125,7 @@ const LocationModule = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mapSearchMode, setMapSearchMode] = useState<MapSearchMode>("coords");
   const [mapLoadError, setMapLoadError] = useState(false);
+  const [facadeCandidateIndex, setFacadeCandidateIndex] = useState(0);
   const detailsPanelRef = useRef<HTMLDivElement | null>(null);
 
   const establishmentNames = useMemo(() => {
@@ -146,6 +176,11 @@ const LocationModule = () => {
 
   const selected = selectedId ? processed.find((e) => e.id === selectedId) : undefined;
   const selectedQuery = selected ? getMapQuery(selected, mapSearchMode) : "";
+  const facadeCandidates = useMemo(
+    () => facadeImageCandidates(selected?.facadePhotoUrl || ""),
+    [selected?.facadePhotoUrl]
+  );
+  const activeFacadeUrl = facadeCandidates[facadeCandidateIndex] || "";
 
   const mapSrc = useMemo(() => {
     const target = selected;
@@ -156,6 +191,10 @@ const LocationModule = () => {
   useEffect(() => {
     setMapLoadError(false);
   }, [mapSrc]);
+
+  useEffect(() => {
+    setFacadeCandidateIndex(0);
+  }, [selected?.id, selected?.facadePhotoUrl]);
 
   const handleSelectEstablishment = (id: string) => {
     setSelectedId(id);
@@ -414,15 +453,24 @@ const LocationModule = () => {
               <p className="font-medium text-foreground mb-1">Foto de fachada</p>
               {selected.facadePhotoUrl?.trim() ? (
                 <img
-                  src={selected.facadePhotoUrl}
+                  src={activeFacadeUrl}
                   alt={`Fachada de ${selected.name}`}
                   className="w-full h-44 object-cover rounded-lg border"
                   loading="lazy"
+                  referrerPolicy="no-referrer"
+                  onError={() => {
+                    if (facadeCandidateIndex < facadeCandidates.length - 1) {
+                      setFacadeCandidateIndex((v) => v + 1);
+                    }
+                  }}
                 />
               ) : (
                 <p className="text-xs">Sin foto en la columna AU.</p>
               )}
               <p className="text-xs break-all">URL: {selected.facadePhotoUrl || "—"}</p>
+              {selected.facadePhotoUrl?.trim() && !activeFacadeUrl ? (
+                <p className="text-xs text-destructive">No se pudo generar URL de previsualización.</p>
+              ) : null}
             </div>
           </div>
             <div className="mt-1 flex flex-col gap-2 text-sm text-muted-foreground">
