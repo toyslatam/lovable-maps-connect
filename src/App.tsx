@@ -13,6 +13,7 @@ import ContentModule from "@/pages/ContentModule";
 import UsersModule from "@/pages/UsersModule";
 import ConnectionsModule from "@/pages/ConnectionsModule";
 import SheetPreviewModule from "@/pages/SheetPreviewModule";
+import MetricsModule from "@/pages/MetricsModule";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -43,6 +44,7 @@ const App = () => (
               <Route path="/content" element={<ProtectedRoute><ContentModule /></ProtectedRoute>} />
               <Route path="/phone" element={<ProtectedRoute><PhoneModule /></ProtectedRoute>} />
               <Route path="/sheet" element={<ProtectedRoute><SheetPreviewModule /></ProtectedRoute>} />
+              <Route path="/metrics" element={<ProtectedRoute><MetricsModule /></ProtectedRoute>} />
               <Route path="/connections" element={<ProtectedRoute><ConnectionsModule /></ProtectedRoute>} />
               <Route path="/users" element={<ProtectedRoute><UsersModule /></ProtectedRoute>} />
               <Route path="*" element={<NotFound />} />

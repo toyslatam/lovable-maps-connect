@@ -8,21 +8,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { AlertCircle, CheckCircle2, Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 import { getEstablishmentKey, loadPhoneContentMap, phoneTextToKg, sheetTextToKg } from "@/lib/phoneContent";
+import { PHONE_STATUS_OPTIONS } from "@/lib/statusOptions";
 
 const SURVEYOR_ALL = "__all__";
-const CONTENT_STATUS_OPTIONS = [
-  "Bueno",
-  "Validar",
-  "Malo",
-  "OK PDV - No encuesta",
-  "Hallazgo",
-  "Sin contacto",
-  "Bueno - No Telefono",
-  "OK encuesta - No info",
-  "Sin contenido",
-  "NM, FS ó NE",
-  "Sin numero",
-] as const;
+const CONTENT_STATUS_OPTIONS = PHONE_STATUS_OPTIONS;
 
 function getSurveyor(row: Establishment): string {
   return (row.listaNombre || row.contactName || row.localizedBy || "Sin encuestador").trim();

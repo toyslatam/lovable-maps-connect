@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 /**
- * A=fecha, D=encuestador, M/N/O=contenido, AL=nombre establecimiento, AM=dirección, AU=foto, AY=latitud, AZ=longitud, BI=ciudad, BN=estado contenido, BV/BW=localizado, CD/CG/CH/DB/DC=validaciones
+ * A=fecha, D=encuestador, M/N/O=contenido, AL=nombre establecimiento, AM=dirección, AU=foto, AY=latitud, AZ=longitud, BI=ciudad, BN=estado contenido, BS=estado telefonico, BV/BW=localizado, CD/CG/CH/DB/DC=validaciones
  */
 const COL_DATE = 0;
 const COL_LISTA_NOMBRE = 3; // D (desplegable)
@@ -24,6 +24,7 @@ const COL_LAT = 50; // AY
 const COL_LNG = 51; // AZ
 const COL_CITY = 60; // BI
 const COL_CONTENT_STATUS = 65; // BN
+const COL_PHONE_STATUS = 70; // BS
 const COL_FLOUR_KG_STANDARD = 81; // CD
 const COL_CONTROL_CG = 84; // CG
 const COL_CONTROL_CH = 85; // CH
@@ -38,6 +39,7 @@ interface SheetRow {
   name: string;
   city: string;
   contentStatus: string;
+  phoneStatus: string;
   facadePhotoUrl: string;
   localizedStatus: string;
   localizedBy: string;
@@ -301,6 +303,7 @@ serve(async (req) => {
           name: cell(r, COL_NAME),
           city: cell(r, COL_CITY),
           contentStatus: cell(r, COL_CONTENT_STATUS),
+          phoneStatus: cell(r, COL_PHONE_STATUS),
           facadePhotoUrl: cell(r, COL_FACADE_PHOTO),
           localizedStatus: cell(r, COL_LOCALIZED_STATUS),
           localizedBy: cell(r, COL_LOCALIZED_BY),
@@ -330,7 +333,7 @@ serve(async (req) => {
 
       const lastRow = rows.length + 1;
       // Solo columnas gestionadas por la app; M/N/O y reglas de Contenido se leen pero no se pisan.
-      const columns = ["A", "D", "F", "G", "H", "AL", "AM", "AU", "AY", "AZ", "BI", "BN", "BV", "BW"];
+      const columns = ["A", "D", "F", "G", "H", "AL", "AM", "AU", "AY", "AZ", "BI", "BN", "BS", "BV", "BW"];
 
       for (const col of columns) {
         const clearRange = encodeURIComponent(
@@ -355,6 +358,7 @@ serve(async (req) => {
         ["AZ1:AZ1", "Longitud"],
         ["BI1:BI1", "Ciudad"],
         ["BN1:BN1", "Estado contenido"],
+        ["BS1:BS1", "Estado telefónico"],
         ["BV1:BV1", "Localización"],
         ["BW1:BW1", "Localización por"],
       ];
@@ -384,6 +388,7 @@ serve(async (req) => {
           ["AZ", rows.map((r) => String(r.longitude ?? ""))],
           ["BI", rows.map((r) => r.city || "")],
           ["BN", rows.map((r) => r.contentStatus || "")],
+          ["BS", rows.map((r) => r.phoneStatus || "")],
           ["BV", rows.map((r) => r.localizedStatus || "")],
           ["BW", rows.map((r) => r.localizedBy || "")],
         ];

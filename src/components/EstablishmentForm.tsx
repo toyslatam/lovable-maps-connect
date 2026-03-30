@@ -24,6 +24,7 @@ export default function EstablishmentForm({ initial, onSave, onClose }: Props) {
     localizedStatus: initial?.localizedStatus || "",
     localizedBy: initial?.localizedBy || "",
     contentStatus: initial?.contentStatus || "",
+    phoneStatus: initial?.phoneStatus || "",
     flourTotalText: initial?.flourTotalText || "",
     bakeryQtyText: initial?.bakeryQtyText || "",
     pastryQtyText: initial?.pastryQtyText || "",
@@ -152,6 +153,11 @@ export default function EstablishmentForm({ initial, onSave, onClose }: Props) {
           <div className="space-y-2">
             <Label>Notas</Label>
             <Textarea value={form.notes} onChange={(e) => update("notes", e.target.value)} placeholder="Observaciones..." rows={3} />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Estado telefónico (columna BS)</Label>
+            <Input value={form.phoneStatus} onChange={(e) => update("phoneStatus", e.target.value)} placeholder="Ej: Sin contacto" />
           </div>
 
           <div className="flex gap-3 pt-2">

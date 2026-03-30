@@ -8,22 +8,20 @@ import { Search, Phone, MessageCircle, Pencil, MapPin } from "lucide-react";
 import EstablishmentForm from "@/components/EstablishmentForm";
 import { Establishment } from "@/types/establishment";
 import {
-  PHONE_UNIT_OPTIONS,
-  PhoneContentEntry,
-  getEstablishmentKey,
-  loadPhoneContentMap,
-  savePhoneContentMap,
-  phoneTextToKg,
-  sheetTextToKg,
+  PHONE_UNIT_OPTIONS, PhoneContentEntry, getEstablishmentKey, loadPhoneContentMap,
+  savePhoneContentMap, phoneTextToKg, sheetTextToKg,
 } from "@/lib/phoneContent";
 import { toast } from "sonner";
+import { PHONE_STATUS_OPTIONS } from "@/lib/statusOptions";
 
 const PhoneModule = () => {
-  const { establishments, updateEstablishment } = useData();
+  const { establishments, updateEstablishment, saveToSheets } = useData();
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<Establishment | undefined>();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [phoneMap, setPhoneMap] = useState<Record<string, PhoneContentEntry>>(() => loadPhoneContentMap());
+  const [phoneStatusDraft, setPhoneStatusDraft] = useState("");
+  const [savingPhoneStatus, setSavingPhoneStatus] = useState(false);
   const [draft, setDraft] = useState<PhoneContentEntry>({
     totalValue: "",
     totalUnit: "kg",
@@ -41,6 +39,7 @@ const PhoneModule = () => {
 
   useEffect(() => {
     if (!selected) return;
+    setPhoneStatusDraft(selected.phoneStatus || "");
     setDraft(selectedPhone || {
       totalValue: "",
       totalUnit: "kg",
@@ -51,6 +50,22 @@ const PhoneModule = () => {
       updatedAt: "",
     });
   }, [selected?.id, selectedPhone]);
+
+  const handleSavePhoneStatus = async () => {
+    if (!selected) return;
+    const updated: Establishment = { ...selected, phoneStatus: phoneStatusDraft.trim() };
+    const nextRows = establishments.map((row) => (row.id === updated.id ? updated : row));
+    updateEstablishment(updated, { skipAutoSync: true });
+    try {
+      setSavingPhoneStatus(true);
+      await saveToSheets(nextRows);
+      toast.success("Estado telefónico guardado");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "No se pudo guardar");
+    } finally {
+      setSavingPhoneStatus(false);
+    }
+  };
 
   const filtered = useMemo(() => {
     if (!deferredSearch.trim()) return establishments;
@@ -132,6 +147,10 @@ const PhoneModule = () => {
                   <span className="text-muted-foreground">Contacto: </span>
                   <span className="font-medium">{e.contactName || "—"}</span>
                 </div>
+                <div className="text-xs">
+                  <span className="text-muted-foreground">Estado telefónico: </span>
+                  <span className="font-medium">{e.phoneStatus || "Sin estado"}</span>
+                </div>
                 {e.notes && (
                   <p className="text-xs text-muted-foreground bg-muted rounded-md p-2 leading-relaxed">{e.notes}</p>
                 )}
@@ -163,6 +182,32 @@ const PhoneModule = () => {
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">Establecimiento</p>
                 <h3 className="text-lg font-semibold">{selected.name}</h3>
                 <p className="text-xs text-muted-foreground">{selected.city} · {selected.address}</p>
+              </div>
+
+              <div className="rounded-lg border p-3 space-y-2">
+                <p className="text-sm font-medium">Estado telefónico (BS)</p>
+                <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                  <Select value={phoneStatusDraft || "__empty__"} onValueChange={(v) => setPhoneStatusDraft(v === "__empty__" ? "" : v)}>
+                    <SelectTrigger className="h-9 sm:max-w-sm">
+                      <SelectValue placeholder="Selecciona estado telefónico" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__empty__">Sin estado</SelectItem>
+                      {PHONE_STATUS_OPTIONS.map((status) => (
+                        <SelectItem key={status} value={status}>{status}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-9"
+                    onClick={handleSavePhoneStatus}
+                    disabled={savingPhoneStatus}
+                  >
+                    {savingPhoneStatus ? "Guardando..." : "Guardar estado"}
+                  </Button>
+                </div>
               </div>
 
               <div className="grid md:grid-cols-2 gap-4">
