@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 /**
- * A=fecha, D=encuestador, M/N/O=contenido, AL=nombre establecimiento, AM=dirección, AU=foto, AY=latitud, AZ=longitud, BI=ciudad, BN=estado contenido, BS=estado telefonico, BV/BW=localizado, CD/CG/CH/DB/DC=validaciones
+ * A=fecha, D=encuestador, AJ=localidad, M/N/O=contenido, AL=nombre establecimiento, AM=dirección, AU=foto, AY=latitud, AZ=longitud, BI=ciudad, BN=estado contenido, BS=estado telefonico, BV/BW=localizado, CD/CG/CH/DB/DC=validaciones
  */
 const COL_DATE = 0;
 const COL_LISTA_NOMBRE = 3; // D (desplegable)
@@ -17,6 +17,7 @@ const COL_NOTES = 7;
 const COL_FLOUR_TOTAL = 12; // M
 const COL_BAKERY_QTY = 13; // N
 const COL_PASTRY_QTY = 14; // O
+const COL_LOCALITY = 35; // AJ
 const COL_NAME = 37; // AL
 const COL_ADDRESS = 38; // AM
 const COL_FACADE_PHOTO = 46; // AU
@@ -36,6 +37,7 @@ const COL_LOCALIZED_BY = 74; // BW
 interface SheetRow {
   recordDate: string;
   listaNombre: string;
+  locality: string;
   name: string;
   city: string;
   contentStatus: string;
@@ -297,6 +299,7 @@ serve(async (req) => {
         .map((r) => ({
           recordDate: parseDateOnly(cell(r, COL_DATE)),
           listaNombre: cell(r, COL_LISTA_NOMBRE),
+          locality: cell(r, COL_LOCALITY),
           flourTotalText: cell(r, COL_FLOUR_TOTAL),
           bakeryQtyText: cell(r, COL_BAKERY_QTY),
           pastryQtyText: cell(r, COL_PASTRY_QTY),
@@ -333,7 +336,7 @@ serve(async (req) => {
 
       const lastRow = rows.length + 1;
       // Solo columnas gestionadas por la app; M/N/O y reglas de Contenido se leen pero no se pisan.
-      const columns = ["A", "D", "F", "G", "H", "AL", "AM", "AU", "AY", "AZ", "BI", "BN", "BS", "BV", "BW"];
+      const columns = ["A", "D", "F", "G", "H", "AJ", "AL", "AM", "AU", "AY", "AZ", "BI", "BN", "BS", "BV", "BW"];
 
       for (const col of columns) {
         const clearRange = encodeURIComponent(
@@ -351,6 +354,7 @@ serve(async (req) => {
         ["F1:F1", "Teléfono"],
         ["G1:G1", "Contacto"],
         ["H1:H1", "Notas"],
+        ["AJ1:AJ1", "Localidad"],
         ["AL1:AL1", "Nombre establecimiento"],
         ["AM1:AM1", "Dirección"],
         ["AU1:AU1", "Foto fachada URL"],
@@ -381,6 +385,7 @@ serve(async (req) => {
           ["F", rows.map((r) => r.phone || "")],
           ["G", rows.map((r) => r.contactName || "")],
           ["H", rows.map((r) => r.notes || "")],
+          ["AJ", rows.map((r) => r.locality || "")],
           ["AL", rows.map((r) => r.name || "")],
           ["AM", rows.map((r) => r.address || "")],
           ["AU", rows.map((r) => r.facadePhotoUrl || "")],

@@ -55,7 +55,8 @@ export default function SheetPreviewModule() {
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
             Muestra el rango <span className="font-mono text-foreground">A:DC</span> tal como está en tu hoja
-            (solo lectura). La columna <span className="font-mono">AL</span> es el nombre del establecimiento y{" "}
+            (solo lectura). La columna <span className="font-mono">AJ</span> es localidad,{" "}
+            <span className="font-mono">AL</span> es el nombre del establecimiento y{" "}
             <span className="font-mono">AU</span> la foto de fachada (URL); <span className="font-mono">BI</span> es ciudad y{" "}
             <span className="font-mono">BV/BW</span> localización.
           </p>

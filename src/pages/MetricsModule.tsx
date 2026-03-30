@@ -37,6 +37,8 @@ type DuplicateGroup = {
   rows: Array<{
     id: string;
     name: string;
+    date: string;
+    locality: string;
     address: string;
     city: string;
     surveyor: string;
@@ -212,6 +214,8 @@ export default function MetricsModule() {
     const normalizedRows = establishments.map((r) => ({
       id: r.id,
       name: r.name,
+      date: r.recordDate,
+      locality: r.locality,
       address: r.address,
       city: r.city,
       surveyor: r.listaNombre || "Sin encuestador",
@@ -232,6 +236,8 @@ export default function MetricsModule() {
       g.rows.push({
         id: r.id,
         name: r.name,
+        date: r.date,
+        locality: r.locality,
         address: r.address,
         city: r.city,
         surveyor: r.surveyor,
@@ -328,6 +334,8 @@ export default function MetricsModule() {
         g.rows.map((r) => ({
           Tipo: "Nombre igual normalizado",
           Grupo: g.normalizedName,
+          Fecha: r.date,
+          Localidad: r.locality,
           Nombre: r.name,
           Ciudad: r.city,
           Direccion: r.address,
@@ -513,6 +521,8 @@ export default function MetricsModule() {
                     return (
                       <div key={r.id} className="rounded-md border p-2">
                         <p className="text-sm font-medium">{show(r.name)}</p>
+                        <p className="text-xs text-muted-foreground">Fecha: {show(r.date)}</p>
+                        <p className="text-xs text-muted-foreground">Localidad: {show(r.locality)}</p>
                         <p className="text-xs text-muted-foreground">{show(r.city)} · {show(r.address)}</p>
                         <p className="text-xs text-muted-foreground">Encuestador: {show(r.surveyor)}</p>
                         <DuplicatePhoto rawUrl={r.facadePhotoUrl} alt={`Fachada ${r.name}`} />

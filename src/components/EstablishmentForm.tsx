@@ -19,6 +19,7 @@ export default function EstablishmentForm({ initial, onSave, onClose }: Props) {
     recordDate: initial?.recordDate || todayYmd(),
     listaNombre: initial?.listaNombre || "",
     name: initial?.name || "",
+    locality: initial?.locality || "",
     facadePhotoUrl: initial?.facadePhotoUrl || "",
     city: initial?.city || "",
     localizedStatus: initial?.localizedStatus || "",
@@ -101,6 +102,15 @@ export default function EstablishmentForm({ initial, onSave, onClose }: Props) {
               onChange={(e) => update("name", e.target.value)}
               required
               placeholder="Nombre del establecimiento en columna AL"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Localidad (columna AJ)</Label>
+            <Input
+              value={form.locality}
+              onChange={(e) => update("locality", e.target.value)}
+              placeholder="Ej: Localidad Bogotá"
             />
           </div>
 

@@ -6,6 +6,8 @@ export interface Establishment {
   listaNombre: string;
   /** Nombre del establecimiento (columna AL en Sheets). */
   name: string;
+  /** Localidad (columna AJ en Sheets). */
+  locality: string;
   /** URL de la foto de fachada (columna AU en Sheets). */
   facadePhotoUrl: string;
   /** Ciudad (columna BI en Sheets). */
