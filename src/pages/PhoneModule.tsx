@@ -1,26 +1,67 @@
-import { useState, useMemo } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useData } from "@/context/DataContext";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Search, Phone, MessageCircle, Pencil, MapPin } from "lucide-react";
 import EstablishmentForm from "@/components/EstablishmentForm";
 import { Establishment } from "@/types/establishment";
+import {
+  PHONE_UNIT_OPTIONS,
+  PhoneContentEntry,
+  getEstablishmentKey,
+  loadPhoneContentMap,
+  savePhoneContentMap,
+  phoneTextToKg,
+  sheetTextToKg,
+} from "@/lib/phoneContent";
+import { toast } from "sonner";
 
 const PhoneModule = () => {
   const { establishments, updateEstablishment } = useData();
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<Establishment | undefined>();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [phoneMap, setPhoneMap] = useState<Record<string, PhoneContentEntry>>(() => loadPhoneContentMap());
+  const [draft, setDraft] = useState<PhoneContentEntry>({
+    totalValue: "",
+    totalUnit: "kg",
+    bakeryValue: "",
+    bakeryUnit: "kg",
+    pastryValue: "",
+    pastryUnit: "kg",
+    updatedAt: "",
+  });
+  const deferredSearch = useDeferredValue(search);
+
+  const selected = selectedId ? establishments.find((e) => e.id === selectedId) : undefined;
+  const selectedKey = selected ? getEstablishmentKey(selected) : "";
+  const selectedPhone = selectedKey ? phoneMap[selectedKey] : undefined;
+
+  useEffect(() => {
+    if (!selected) return;
+    setDraft(selectedPhone || {
+      totalValue: "",
+      totalUnit: "kg",
+      bakeryValue: "",
+      bakeryUnit: "kg",
+      pastryValue: "",
+      pastryUnit: "kg",
+      updatedAt: "",
+    });
+  }, [selected?.id, selectedPhone]);
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return establishments;
-    const q = search.toLowerCase();
+    if (!deferredSearch.trim()) return establishments;
+    const q = deferredSearch.toLowerCase();
     return establishments.filter(
       (e) =>
         e.name.toLowerCase().includes(q) ||
         e.contactName.toLowerCase().includes(q) ||
         e.phone.includes(q)
     );
-  }, [establishments, search]);
+  }, [establishments, deferredSearch]);
 
   const sendWhatsApp = (e: Establishment) => {
     const phone = e.phone.replace(/[^0-9]/g, "");
@@ -47,7 +88,8 @@ const PhoneModule = () => {
         />
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 reveal-up reveal-up-delay-2">
+      <div className="grid lg:grid-cols-5 gap-4 reveal-up reveal-up-delay-2">
+        <div className="lg:col-span-2 space-y-2">
         {filtered.length === 0 ? (
           <div className="col-span-full text-center py-12 text-muted-foreground">
             <Phone className="w-10 h-10 mx-auto mb-3 opacity-40" />
@@ -57,9 +99,12 @@ const PhoneModule = () => {
           filtered.map((e) => (
             <div
               key={e.id}
-              className="p-5 rounded-xl border bg-card hover:shadow-md transition-all duration-200 hover:border-primary/20"
+              className={`p-3 rounded-lg border bg-card hover:shadow-sm transition-all duration-200 hover:border-primary/20 cursor-pointer ${
+                selectedId === e.id ? "border-primary bg-primary/5" : ""
+              }`}
+              onClick={() => setSelectedId(e.id)}
             >
-              <div className="flex items-start justify-between mb-3">
+              <div className="flex items-start justify-between mb-2">
                 <div className="min-w-0">
                   <h3 className="font-semibold text-sm truncate">{e.name}</h3>
                   <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
@@ -68,14 +113,17 @@ const PhoneModule = () => {
                   </p>
                 </div>
                 <button
-                  onClick={() => setEditing(e)}
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    setEditing(e);
+                  }}
                   className="p-1.5 rounded-md hover:bg-muted transition-colors text-muted-foreground shrink-0"
                 >
                   <Pencil className="w-3.5 h-3.5" />
                 </button>
               </div>
 
-              <div className="space-y-2 mb-4">
+              <div className="space-y-1 mb-3">
                 <div className="flex items-center gap-2">
                   <Phone className="w-3.5 h-3.5 text-primary shrink-0" />
                   <span className="text-sm font-mono">{e.phone || "—"}</span>
@@ -90,17 +138,134 @@ const PhoneModule = () => {
               </div>
 
               <Button
-                onClick={() => sendWhatsApp(e)}
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  sendWhatsApp(e);
+                }}
                 disabled={!e.phone}
-                className="w-full gap-2 bg-success hover:bg-success/90 text-success-foreground"
+                className="w-full gap-2 bg-success hover:bg-success/90 text-success-foreground h-8 text-xs"
                 size="sm"
               >
                 <MessageCircle className="w-4 h-4" />
-                Enviar WhatsApp
+                WhatsApp
               </Button>
             </div>
           ))
         )}
+        </div>
+
+        <div className="lg:col-span-3 rounded-xl border bg-card p-4">
+          {!selected ? (
+            <p className="text-sm text-muted-foreground">Selecciona un establecimiento para capturar contenido telefónico.</p>
+          ) : (
+            <div className="space-y-4">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Establecimiento</p>
+                <h3 className="text-lg font-semibold">{selected.name}</h3>
+                <p className="text-xs text-muted-foreground">{selected.city} · {selected.address}</p>
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="rounded-lg border p-3 space-y-2">
+                  <p className="text-sm font-medium">Contenido de hoja (referencia)</p>
+                  <p className="text-xs">Total harina: <span className="font-medium">{selected.flourTotalText || "Sin dato"}</span></p>
+                  <p className="text-xs">Panadería: <span className="font-medium">{selected.bakeryQtyText || "Sin dato"}</span></p>
+                  <p className="text-xs">Pastelería: <span className="font-medium">{selected.pastryQtyText || "Sin dato"}</span></p>
+                </div>
+                <div className="rounded-lg border p-3 space-y-2">
+                  <p className="text-sm font-medium">Contenido obtenido por telefónico</p>
+                  {[
+                    { key: "total", label: "Total harina", value: draft.totalValue, unit: draft.totalUnit },
+                    { key: "bakery", label: "Panadería", value: draft.bakeryValue, unit: draft.bakeryUnit },
+                    { key: "pastry", label: "Pastelería", value: draft.pastryValue, unit: draft.pastryUnit },
+                  ].map((field) => (
+                    <div key={field.key} className="grid grid-cols-[1fr_140px] gap-2 items-center">
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">{field.label}</Label>
+                        <Input
+                          value={field.value}
+                          onChange={(ev) => {
+                            const next = { ...draft } as PhoneContentEntry;
+                            if (field.key === "total") next.totalValue = ev.target.value;
+                            if (field.key === "bakery") next.bakeryValue = ev.target.value;
+                            if (field.key === "pastry") next.pastryValue = ev.target.value;
+                            setDraft({ ...next, updatedAt: new Date().toISOString() });
+                          }}
+                          placeholder="Cantidad"
+                          className="h-8 text-xs"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">Unidad</Label>
+                        <Select
+                          value={field.unit}
+                          onValueChange={(v) => {
+                            const next = { ...draft } as PhoneContentEntry;
+                            if (field.key === "total") next.totalUnit = v;
+                            if (field.key === "bakery") next.bakeryUnit = v;
+                            if (field.key === "pastry") next.pastryUnit = v;
+                            setDraft({ ...next, updatedAt: new Date().toISOString() });
+                          }}
+                        >
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {PHONE_UNIT_OPTIONS.map((u) => (
+                              <SelectItem key={u} value={u}>{u}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  ))}
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={() => {
+                      if (!selectedKey) return;
+                      const nextMap = { ...phoneMap, [selectedKey]: { ...draft, updatedAt: new Date().toISOString() } };
+                      setPhoneMap(nextMap);
+                      savePhoneContentMap(nextMap);
+                      window.dispatchEvent(new Event("srq-phone-content-updated"));
+                      toast.success("Contenido telefónico guardado");
+                    }}
+                  >
+                    Guardar contenido telefónico
+                  </Button>
+                </div>
+              </div>
+
+              <div className="rounded-lg border p-3">
+                <p className="text-sm font-medium mb-2">Comparación VS hoja</p>
+                {(() => {
+                  const sheetTotal = sheetTextToKg(selected.flourTotalText);
+                  const sheetBakery = sheetTextToKg(selected.bakeryQtyText);
+                  const sheetPastry = sheetTextToKg(selected.pastryQtyText);
+                  const phoneTotal = phoneTextToKg(draft.totalValue, draft.totalUnit);
+                  const phoneBakery = phoneTextToKg(draft.bakeryValue, draft.bakeryUnit);
+                  const phonePastry = phoneTextToKg(draft.pastryValue, draft.pastryUnit);
+                  const all = [
+                    [sheetTotal, phoneTotal],
+                    [sheetBakery, phoneBakery],
+                    [sheetPastry, phonePastry],
+                  ];
+                  const comparable = all.every(([a, b]) => a !== null && b !== null);
+                  const ok = comparable && all.every(([a, b]) => Math.abs((a as number) - (b as number)) <= (a as number) * 0.15 + 0.01);
+                  return (
+                    <div className="text-sm">
+                      <p className={`font-medium ${ok ? "text-emerald-600" : "text-destructive"}`}>
+                        {comparable ? (ok ? "Coincide" : "No coincide") : "Sin datos suficientes para comparar"}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">Comparación en kg estandarizados (tolerancia 15%).</p>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {editing && (

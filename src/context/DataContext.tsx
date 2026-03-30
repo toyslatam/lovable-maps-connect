@@ -22,13 +22,14 @@ interface DataContextType {
   autoSync: boolean;
   setAutoSync: (v: boolean) => void;
   connectionStatus: "unknown" | "connected" | "error";
-  /** Lee A:BW tal como está en Google Sheets (texto crudo, para vista previa). */
+  /** Lee A:DC tal como está en Google Sheets (texto crudo, para vista previa). */
   fetchSheetPreview: () => Promise<{ range: string; values: string[][] }>;
 }
 
 const DataContext = createContext<DataContextType | null>(null);
 
 export function DataProvider({ children }: { children: ReactNode }) {
+  const HOURLY_SYNC_MS = 60 * 60 * 1000;
   const [establishments, setEstablishments] = useState<Establishment[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [connectedSheetId, setConnectedSheetIdState] = useState<string>(
@@ -80,6 +81,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
       city: e.city?.trim() ?? "",
       localizedStatus: e.localizedStatus?.trim() ?? "",
       localizedBy: e.localizedBy?.trim() ?? "",
+      contentStatus: e.contentStatus?.trim() ?? "",
+      flourTotalText: e.flourTotalText?.trim() ?? "",
+      bakeryQtyText: e.bakeryQtyText?.trim() ?? "",
+      pastryQtyText: e.pastryQtyText?.trim() ?? "",
+      flourKgStandardText: e.flourKgStandardText?.trim() ?? "",
+      controlCGText: e.controlCGText?.trim() ?? "",
+      controlCHText: e.controlCHText?.trim() ?? "",
+      dbStatus: e.dbStatus?.trim() ?? "",
+      dcStatus: e.dcStatus?.trim() ?? "",
       recordDate: e.recordDate?.trim() || today,
       id: crypto.randomUUID(),
     }]);
@@ -124,7 +134,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
       const data = await invokeGoogleSheets(body);
 
-      const imported: Establishment[] = (data.data || []).map(
+      const importedRaw: Establishment[] = (data.data || []).map(
         (row: Omit<Establishment, "id">) => ({
           recordDate: row.recordDate ?? "",
           listaNombre: row.listaNombre ?? "",
@@ -133,6 +143,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
           city: row.city ?? "",
           localizedStatus: row.localizedStatus ?? "",
           localizedBy: row.localizedBy ?? "",
+          contentStatus: row.contentStatus ?? "",
+          flourTotalText: row.flourTotalText ?? "",
+          bakeryQtyText: row.bakeryQtyText ?? "",
+          pastryQtyText: row.pastryQtyText ?? "",
+          flourKgStandardText: row.flourKgStandardText ?? "",
+          controlCGText: row.controlCGText ?? "",
+          controlCHText: row.controlCHText ?? "",
+          dbStatus: row.dbStatus ?? "",
+          dcStatus: row.dcStatus ?? "",
           address: row.address ?? "",
           latitude: typeof row.latitude === "number" ? row.latitude : 0,
           longitude: typeof row.longitude === "number" ? row.longitude : 0,
@@ -142,6 +161,23 @@ export function DataProvider({ children }: { children: ReactNode }) {
           id: crypto.randomUUID(),
         })
       );
+
+      // Safety dedupe: if Sheets has accidental repeated rows, keep only first occurrence.
+      const seen = new Set<string>();
+      const imported: Establishment[] = importedRaw.filter((row) => {
+        const key = [
+          row.recordDate,
+          row.listaNombre,
+          row.name,
+          row.address,
+          row.latitude,
+          row.longitude,
+          row.city,
+        ].join("||");
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
 
       // Prevent immediate write-back after loading data from Sheets.
       shouldPushChanges.current = false;
@@ -175,6 +211,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
         city,
         localizedStatus,
         localizedBy,
+        contentStatus,
+        flourTotalText,
+        bakeryQtyText,
+        pastryQtyText,
+        flourKgStandardText,
+        controlCGText,
+        controlCHText,
+        dbStatus,
+        dcStatus,
         address,
         latitude,
         longitude,
@@ -189,6 +234,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
         city,
         localizedStatus,
         localizedBy,
+        contentStatus,
+        flourTotalText,
+        bakeryQtyText,
+        pastryQtyText,
+        flourKgStandardText,
+        controlCGText,
+        controlCHText,
+        dbStatus,
+        dcStatus,
         address,
         latitude,
         longitude,
@@ -253,7 +307,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     const data = await invokeGoogleSheets(body);
 
     return {
-      range: typeof data.range === "string" ? data.range : "A:BW",
+      range: typeof data.range === "string" ? data.range : "A:DC",
       values: Array.isArray(data.values) ? (data.values as string[][]) : [],
     };
   }, [connectedSheetId, connectedSheetTab]);
@@ -290,17 +344,24 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   }, [autoSync, connectedSheetId, importFromSheets]);
 
-  // Push local CRUD changes automatically to Sheets when auto-sync is enabled.
+  // Hourly sync to avoid syncing on every local change (improves UI responsiveness).
   useEffect(() => {
-    if (!autoSync || !connectedSheetId || !shouldPushChanges.current) return;
+    if (!autoSync || !connectedSheetId) return;
 
-    shouldPushChanges.current = false;
-    const timer = setTimeout(() => {
-      exportToSheets(true);
-    }, 800);
+    const runSync = () => {
+      // If there are pending local edits, push them first.
+      if (shouldPushChanges.current) {
+        shouldPushChanges.current = false;
+        exportToSheets(true);
+        return;
+      }
+      // Otherwise pull latest rows from Sheets.
+      importFromSheets();
+    };
 
-    return () => clearTimeout(timer);
-  }, [autoSync, connectedSheetId, connectedSheetTab, establishments, exportToSheets]);
+    const interval = setInterval(runSync, HOURLY_SYNC_MS);
+    return () => clearInterval(interval);
+  }, [autoSync, connectedSheetId, connectedSheetTab, exportToSheets, importFromSheets]);
 
   return (
     <DataContext.Provider value={{

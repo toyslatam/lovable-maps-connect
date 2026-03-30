@@ -2,7 +2,7 @@ export interface Establishment {
   id: string;
   /** Fecha del registro (solo día), derivada de la columna A (YYYY-MM-DD). */
   recordDate: string;
-  /** Valor del desplegable "Nombre" en Google Sheets (columna D). */
+  /** Encuestador en Google Sheets (columna D). */
   listaNombre: string;
   /** Nombre del establecimiento (columna AL en Sheets). */
   name: string;
@@ -14,6 +14,24 @@ export interface Establishment {
   localizedStatus: string;
   /** Usuario que localizó (columna BW en Sheets). */
   localizedBy: string;
+  /** Estado contenido (columna BN en Sheets). */
+  contentStatus: string;
+  /** Total de harina reportada (columna M, texto libre). */
+  flourTotalText: string;
+  /** Elaborar panadería (columna N, texto libre). */
+  bakeryQtyText: string;
+  /** Elaborar pastelería (columna O, texto libre). */
+  pastryQtyText: string;
+  /** Cantidad estandarizada en kg (columna CD, si existe en la hoja). */
+  flourKgStandardText: string;
+  /** Datos de control (columna CG). */
+  controlCGText: string;
+  /** Datos de control (columna CH). */
+  controlCHText: string;
+  /** Estado regla DB (Cumple/Falla). */
+  dbStatus: string;
+  /** Estado regla DC (Cumple/Falla). */
+  dcStatus: string;
   /** Dirección (columna AM en Sheets). */
   address: string;
   /** Latitud (columna AY en Sheets). */

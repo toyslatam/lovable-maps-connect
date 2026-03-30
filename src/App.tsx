@@ -9,6 +9,7 @@ import AppLayout from "@/components/AppLayout";
 import Login from "@/pages/Login";
 import LocationModule from "@/pages/LocationModule";
 import PhoneModule from "@/pages/PhoneModule";
+import ContentModule from "@/pages/ContentModule";
 import UsersModule from "@/pages/UsersModule";
 import ConnectionsModule from "@/pages/ConnectionsModule";
 import SheetPreviewModule from "@/pages/SheetPreviewModule";
@@ -39,6 +40,7 @@ const App = () => (
             <Routes>
               <Route path="/login" element={<LoginRoute />} />
               <Route path="/" element={<ProtectedRoute><LocationModule /></ProtectedRoute>} />
+              <Route path="/content" element={<ProtectedRoute><ContentModule /></ProtectedRoute>} />
               <Route path="/phone" element={<ProtectedRoute><PhoneModule /></ProtectedRoute>} />
               <Route path="/sheet" element={<ProtectedRoute><SheetPreviewModule /></ProtectedRoute>} />
               <Route path="/connections" element={<ProtectedRoute><ConnectionsModule /></ProtectedRoute>} />

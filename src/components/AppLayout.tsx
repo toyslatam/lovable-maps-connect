@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { Phone, LogOut, Menu, X, Map, Users, Cable, Table2 } from "lucide-react";
+import { Phone, LogOut, Menu, X, Map, Users, Cable, Table2, ClipboardList } from "lucide-react";
 
 const navItems = [
   { to: "/", icon: Map, label: "Localización" },
+  { to: "/content", icon: ClipboardList, label: "Contenido" },
   { to: "/sheet", icon: Table2, label: "Vista hoja" },
   { to: "/phone", icon: Phone, label: "Contactos" },
 ];

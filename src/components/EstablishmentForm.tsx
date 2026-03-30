@@ -23,6 +23,15 @@ export default function EstablishmentForm({ initial, onSave, onClose }: Props) {
     city: initial?.city || "",
     localizedStatus: initial?.localizedStatus || "",
     localizedBy: initial?.localizedBy || "",
+    contentStatus: initial?.contentStatus || "",
+    flourTotalText: initial?.flourTotalText || "",
+    bakeryQtyText: initial?.bakeryQtyText || "",
+    pastryQtyText: initial?.pastryQtyText || "",
+    flourKgStandardText: initial?.flourKgStandardText || "",
+    controlCGText: initial?.controlCGText || "",
+    controlCHText: initial?.controlCHText || "",
+    dbStatus: initial?.dbStatus || "",
+    dcStatus: initial?.dcStatus || "",
     address: initial?.address || "",
     latitude: initial?.latitude?.toString() || "",
     longitude: initial?.longitude?.toString() || "",
@@ -73,14 +82,14 @@ export default function EstablishmentForm({ initial, onSave, onClose }: Props) {
           </div>
 
           <div className="space-y-2">
-            <Label>Nombre (columna D — lista desplegable)</Label>
+            <Label>Encuestador (columna D)</Label>
             <Input
               value={form.listaNombre}
               onChange={(e) => update("listaNombre", e.target.value)}
-              placeholder="Valor del desplegable &quot;Nombre&quot; en Sheets"
+              placeholder="Nombre del encuestador en columna D"
             />
             <p className="text-xs text-muted-foreground">
-              Debe coincidir con una opción válida de tu validación de datos en la columna D.
+              Si usas validación de datos en D, debe coincidir con una opción válida.
             </p>
           </div>
 

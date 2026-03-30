@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useData } from "@/context/DataContext";
 import { useAuth } from "@/context/AuthContext";
 import { Input } from "@/components/ui/input";
@@ -17,17 +17,20 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Search, Plus, MapPin, Navigation, Pencil, Trash2, Calendar, ChevronDown } from "lucide-react";
 import EstablishmentForm from "@/components/EstablishmentForm";
 import { Establishment } from "@/types/establishment";
 import { formatRecordDateEs } from "@/lib/dateOnly";
 import { toast } from "sonner";
+import { GoogleMap, MarkerF, useJsApiLoader } from "@react-google-maps/api";
 
 const FILTER_ALL = "__all__";
 
 type SearchField = "address" | "coords";
 type MapSearchMode = "establishment" | "address" | "coords";
 const LOCALIZED_STATUS_OPTIONS = ["Correcta", "Corregida", "Cercana", "Recuperada", "Sin datos"] as const;
+const GOOGLE_LIBRARIES: ("places")[] = ["places"];
 
 function getMapQuery(e: Establishment, mode: MapSearchMode): string {
   const city = e.city?.trim();
@@ -137,10 +140,17 @@ const LocationModule = () => {
   const [mapSearchMode, setMapSearchMode] = useState<MapSearchMode>("coords");
   const [mapLoadError, setMapLoadError] = useState(false);
   const [facadeCandidateIndex, setFacadeCandidateIndex] = useState(0);
+  const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number }>({ lat: 10.48, lng: -66.87 });
+  const [mapZoom, setMapZoom] = useState(14);
   const [localizedStatus, setLocalizedStatus] = useState("");
   const [localizedBy, setLocalizedBy] = useState("");
   const [savingLocalized, setSavingLocalized] = useState(false);
-  const detailsPanelRef = useRef<HTMLDivElement | null>(null);
+  const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
+  const { isLoaded: isMapLoaded, loadError: mapApiError } = useJsApiLoader({
+    id: "srq-google-map",
+    googleMapsApiKey: apiKey,
+    libraries: GOOGLE_LIBRARIES,
+  });
 
   const establishmentNames = useMemo(() => {
     const names = new Set<string>();
@@ -207,6 +217,29 @@ const LocationModule = () => {
   }, [mapSrc]);
 
   useEffect(() => {
+    if (!selected) return;
+    if (mapSearchMode === "coords") {
+      setMapCenter({ lat: selected.latitude, lng: selected.longitude });
+      setMapZoom(17);
+      return;
+    }
+    const g = (window as any).google;
+    if (!isMapLoaded || !g?.maps?.Geocoder) return;
+
+    const geocoder = new g.maps.Geocoder();
+    geocoder.geocode({ address: getMapQuery(selected, mapSearchMode) }, (results: any[], status: string) => {
+      if (status === "OK" && results?.[0]?.geometry?.location) {
+        const p = results[0].geometry.location;
+        setMapCenter({ lat: p.lat(), lng: p.lng() });
+        setMapZoom(17);
+        return;
+      }
+      setMapCenter({ lat: selected.latitude, lng: selected.longitude });
+      setMapZoom(16);
+    });
+  }, [selected?.id, selected?.latitude, selected?.longitude, selectedQuery, mapSearchMode, isMapLoaded]);
+
+  useEffect(() => {
     setFacadeCandidateIndex(0);
   }, [selected?.id, selected?.facadePhotoUrl]);
 
@@ -222,9 +255,6 @@ const LocationModule = () => {
 
   const handleSelectEstablishment = (id: string) => {
     setSelectedId(id);
-    setTimeout(() => {
-      detailsPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 50);
   };
 
   const handleSaveLocalized = async () => {
@@ -402,7 +432,7 @@ const LocationModule = () => {
                     <h3 className="font-semibold text-sm truncate leading-tight mt-0.5">{e.name}</h3>
                     {e.listaNombre ? (
                       <p className="text-xs text-muted-foreground mt-1 truncate">
-                        Nombre (lista col. D): <span className="font-medium text-foreground">{e.listaNombre}</span>
+                        Encuestador (col. D): <span className="font-medium text-foreground">{e.listaNombre}</span>
                       </p>
                     ) : null}
                     <p className="text-xs text-muted-foreground mt-1">
@@ -449,176 +479,188 @@ const LocationModule = () => {
           )}
       </div>
 
-      {/* Panel inferior: aparece al hacer clic en un registro */}
-      <div ref={detailsPanelRef} className="reveal-up reveal-up-delay-3">
-        {selected ? (
-          <div className="space-y-3">
-          <div className="mb-3 flex items-center gap-2 flex-wrap">
-            <span className="text-xs text-muted-foreground">Mapa por:</span>
-            <button
-              type="button"
-              onClick={() => setMapSearchMode("establishment")}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                mapSearchMode === "establishment"
-                  ? "bg-primary text-primary-foreground"
-                  : "border text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              Nombre establecimiento
-            </button>
-            <button
-              type="button"
-              onClick={() => setMapSearchMode("address")}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                mapSearchMode === "address"
-                  ? "bg-primary text-primary-foreground"
-                  : "border text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              Dirección
-            </button>
-            <button
-              type="button"
-              onClick={() => setMapSearchMode("coords")}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                mapSearchMode === "coords"
-                  ? "bg-primary text-primary-foreground"
-                  : "border text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              Coordenadas
-            </button>
-          </div>
-          <div className="grid lg:grid-cols-4 gap-4">
-            <div className="lg:col-span-3 rounded-xl overflow-hidden border bg-card shadow-sm" style={{ height: "480px" }}>
-              <iframe
-                key={`${selected.id}-${mapSearchMode}-${selectedQuery}`}
-                src={mapSrc}
-                width="100%"
-                height="100%"
-                style={{ border: 0 }}
-                allowFullScreen
-                loading="lazy"
-                referrerPolicy="no-referrer-when-downgrade"
-                title="Mapa de ubicación"
-                onError={() => setMapLoadError(true)}
-              />
-            </div>
-            <div className="rounded-xl border bg-card p-4 text-sm text-muted-foreground space-y-3">
-              <p className="font-medium text-foreground mb-1">Foto de fachada</p>
-              {selected.facadePhotoUrl?.trim() ? (
-                <img
-                  src={activeFacadeUrl}
-                  alt={`Fachada de ${selected.name}`}
-                  className="w-full h-44 object-cover rounded-lg border"
-                  loading="lazy"
-                  referrerPolicy="no-referrer"
-                  onError={() => {
-                    if (facadeCandidateIndex < facadeCandidates.length - 1) {
-                      setFacadeCandidateIndex((v) => v + 1);
-                    }
-                  }}
-                />
-              ) : (
-                <p className="text-xs">Sin foto en la columna AU.</p>
-              )}
-              <p className="text-xs break-all">URL: {selected.facadePhotoUrl || "—"}</p>
-              {selected.facadePhotoUrl?.trim() && !activeFacadeUrl ? (
-                <p className="text-xs text-destructive">No se pudo generar URL de previsualización.</p>
-              ) : null}
-            </div>
-          </div>
-            <div className="mt-1 flex flex-col gap-2 text-sm text-muted-foreground">
-              <div className="flex items-center gap-2 flex-wrap">
-                <MapPin className="w-3.5 h-3.5 text-primary shrink-0" />
-                <span className="font-medium text-foreground">{selected.name}</span>
-                <span className="text-xs">({formatRecordDateEs(selected.recordDate)})</span>
-                {selected.listaNombre ? (
-                  <span className="text-xs text-muted-foreground">· Lista D: {selected.listaNombre}</span>
-                ) : null}
+      <Dialog open={!!selected} onOpenChange={(open) => { if (!open) setSelectedId(null); }}>
+        <DialogContent className="max-w-6xl max-h-[92vh] overflow-y-auto">
+          {!selected ? null : (
+            <div className="space-y-3">
+              <div className="mb-2 flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-muted-foreground">Mapa por:</span>
+                <button
+                  type="button"
+                  onClick={() => setMapSearchMode("establishment")}
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                    mapSearchMode === "establishment"
+                      ? "bg-primary text-primary-foreground"
+                      : "border text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Nombre establecimiento
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMapSearchMode("address")}
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                    mapSearchMode === "address"
+                      ? "bg-primary text-primary-foreground"
+                      : "border text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Dirección
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMapSearchMode("coords")}
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                    mapSearchMode === "coords"
+                      ? "bg-primary text-primary-foreground"
+                      : "border text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Coordenadas
+                </button>
               </div>
-              <span className="text-xs pl-6">{selected.address}</span>
-              {selected.city ? (
-                <span className="text-xs pl-6">Ciudad: {selected.city}</span>
-              ) : null}
-              <div className="pl-6 pt-2 grid sm:grid-cols-3 gap-2 items-end">
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">Localizado (BV)</Label>
-                  <Select value={localizedStatus || "__empty__"} onValueChange={(v) => setLocalizedStatus(v === "__empty__" ? "" : v)}>
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue placeholder="Selecciona estado" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__empty__">Sin estado</SelectItem>
-                      {LOCALIZED_STATUS_OPTIONS.map((status) => (
-                        <SelectItem key={status} value={status}>{status}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1 sm:col-span-2">
-                  <Label className="text-xs text-muted-foreground">Localizado por (BW)</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      value={localizedBy}
-                      onChange={(e) => setLocalizedBy(e.target.value)}
-                      placeholder="Nombre de usuario"
-                      className="h-8 text-xs"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-8 text-xs shrink-0"
-                      onClick={() => setLocalizedBy(user?.name || "")}
+              <div className="grid lg:grid-cols-4 gap-4">
+                <div className="lg:col-span-3 rounded-xl overflow-hidden border bg-card shadow-sm" style={{ height: "480px" }}>
+                  {apiKey && isMapLoaded && !mapApiError ? (
+                    <GoogleMap
+                      mapContainerStyle={{ width: "100%", height: "100%" }}
+                      center={mapCenter}
+                      zoom={mapZoom}
+                      options={{
+                        streetViewControl: true,
+                        fullscreenControl: true,
+                        mapTypeControl: true,
+                      }}
                     >
-                      Mi nombre
-                    </Button>
+                      <MarkerF position={mapCenter} />
+                    </GoogleMap>
+                  ) : (
+                    <iframe
+                      key={`${selected.id}-${mapSearchMode}-${selectedQuery}`}
+                      src={mapSrc}
+                      width="100%"
+                      height="100%"
+                      style={{ border: 0 }}
+                      allowFullScreen
+                      loading="lazy"
+                      referrerPolicy="no-referrer-when-downgrade"
+                      title="Mapa de ubicación"
+                      onError={() => setMapLoadError(true)}
+                    />
+                  )}
+                </div>
+                <div className="rounded-xl border bg-card p-4 text-sm text-muted-foreground space-y-3">
+                  <p className="font-medium text-foreground mb-1">Foto de fachada</p>
+                  {selected.facadePhotoUrl?.trim() ? (
+                    <img
+                      src={activeFacadeUrl}
+                      alt={`Fachada de ${selected.name}`}
+                      className="w-full h-44 object-contain rounded-lg border bg-muted/20"
+                      loading="lazy"
+                      referrerPolicy="no-referrer"
+                      onError={() => {
+                        if (facadeCandidateIndex < facadeCandidates.length - 1) {
+                          setFacadeCandidateIndex((v) => v + 1);
+                        }
+                      }}
+                    />
+                  ) : (
+                    <p className="text-xs">Sin foto en la columna AU.</p>
+                  )}
+                  <p className="text-xs break-all">URL: {selected.facadePhotoUrl || "—"}</p>
+                </div>
+              </div>
+              <div className="mt-1 flex flex-col gap-2 text-sm text-muted-foreground">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <MapPin className="w-3.5 h-3.5 text-primary shrink-0" />
+                  <span className="font-medium text-foreground">{selected.name}</span>
+                  <span className="text-xs">({formatRecordDateEs(selected.recordDate)})</span>
+                  {selected.listaNombre ? (
+                    <span className="text-xs text-muted-foreground">· Encuestador D: {selected.listaNombre}</span>
+                  ) : null}
+                </div>
+                <span className="text-xs pl-6">{selected.address}</span>
+                {selected.city ? (
+                  <span className="text-xs pl-6">Ciudad: {selected.city}</span>
+                ) : null}
+                <div className="pl-6 pt-2 grid sm:grid-cols-3 gap-2 items-end">
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Localizado (BV)</Label>
+                    <Select value={localizedStatus || "__empty__"} onValueChange={(v) => setLocalizedStatus(v === "__empty__" ? "" : v)}>
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="Selecciona estado" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__empty__">Sin estado</SelectItem>
+                        {LOCALIZED_STATUS_OPTIONS.map((status) => (
+                          <SelectItem key={status} value={status}>{status}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1 sm:col-span-2">
+                    <Label className="text-xs text-muted-foreground">Localizado por (BW)</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        value={localizedBy}
+                        onChange={(e) => setLocalizedBy(e.target.value)}
+                        placeholder="Nombre de usuario"
+                        className="h-8 text-xs"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-xs shrink-0"
+                        onClick={() => setLocalizedBy(user?.name || "")}
+                      >
+                        Mi nombre
+                      </Button>
+                    </div>
                   </div>
                 </div>
-              </div>
-              <div className="pl-6">
-                <Button
-                  type="button"
-                  size="sm"
-                  className="h-8 text-xs"
-                  onClick={handleSaveLocalized}
-                  disabled={savingLocalized}
-                >
-                  {savingLocalized ? "Guardando..." : "Guardar localización"}
-                </Button>
-              </div>
-              <div className="pl-6 flex flex-wrap items-center gap-2 pt-1">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs"
-                  onClick={() => openGoogleMaps(selected, mapSearchMode)}
-                >
-                  Abrir Google Maps ({mapSearchMode === "establishment" ? "establecimiento" : mapSearchMode === "address" ? "dirección" : "coordenadas"})
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs"
-                  onClick={() => openStreetView(selected)}
-                >
-                  Street View
-                </Button>
-                {mapLoadError ? (
-                  <span className="text-xs text-destructive">No se pudo cargar el iframe; usa el botón para abrir Maps en pestaña nueva.</span>
-                ) : null}
+                <div className="pl-6">
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={handleSaveLocalized}
+                    disabled={savingLocalized}
+                  >
+                    {savingLocalized ? "Guardando..." : "Guardar localización"}
+                  </Button>
+                </div>
+                <div className="pl-6 flex flex-wrap items-center gap-2 pt-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={() => openGoogleMaps(selected, mapSearchMode)}
+                  >
+                    Abrir Google Maps ({mapSearchMode === "establishment" ? "establecimiento" : mapSearchMode === "address" ? "dirección" : "coordenadas"})
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={() => openStreetView(selected)}
+                  >
+                    Street View
+                  </Button>
+                  {!apiKey ? (
+                    <span className="text-xs text-amber-600">Sin `VITE_GOOGLE_MAPS_API_KEY`; usando mapa embebido sin controles completos.</span>
+                  ) : null}
+                  {mapLoadError ? (
+                    <span className="text-xs text-destructive">No se pudo cargar el mapa embebido; usa abrir en pestaña nueva.</span>
+                  ) : null}
+                </div>
               </div>
             </div>
-          </div>
-        ) : (
-          <div className="rounded-xl border bg-card p-8 text-center text-muted-foreground">
-            Selecciona un establecimiento de la lista para mostrar el mapa.
-          </div>
-        )}
-      </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {showForm && (
         <EstablishmentForm

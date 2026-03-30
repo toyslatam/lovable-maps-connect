@@ -7,19 +7,28 @@ const corsHeaders = {
 };
 
 /**
- * A=fecha, D="Nombre" (lista desplegable), AL=nombre establecimiento, AM=dirección, AU=foto, AY=latitud, AZ=longitud, BI=ciudad, BV=localizado, BW=localizado por
+ * A=fecha, D=encuestador, M/N/O=contenido, AL=nombre establecimiento, AM=dirección, AU=foto, AY=latitud, AZ=longitud, BI=ciudad, BN=estado contenido, BV/BW=localizado, CD/CG/CH/DB/DC=validaciones
  */
 const COL_DATE = 0;
 const COL_LISTA_NOMBRE = 3; // D (desplegable)
 const COL_PHONE = 5;
 const COL_CONTACT = 6;
 const COL_NOTES = 7;
+const COL_FLOUR_TOTAL = 12; // M
+const COL_BAKERY_QTY = 13; // N
+const COL_PASTRY_QTY = 14; // O
 const COL_NAME = 37; // AL
 const COL_ADDRESS = 38; // AM
 const COL_FACADE_PHOTO = 46; // AU
 const COL_LAT = 50; // AY
 const COL_LNG = 51; // AZ
 const COL_CITY = 60; // BI
+const COL_CONTENT_STATUS = 65; // BN
+const COL_FLOUR_KG_STANDARD = 81; // CD
+const COL_CONTROL_CG = 84; // CG
+const COL_CONTROL_CH = 85; // CH
+const COL_STATUS_DB = 105; // DB
+const COL_STATUS_DC = 106; // DC
 const COL_LOCALIZED_STATUS = 73; // BV
 const COL_LOCALIZED_BY = 74; // BW
 
@@ -28,9 +37,18 @@ interface SheetRow {
   listaNombre: string;
   name: string;
   city: string;
+  contentStatus: string;
   facadePhotoUrl: string;
   localizedStatus: string;
   localizedBy: string;
+  flourTotalText: string;
+  bakeryQtyText: string;
+  pastryQtyText: string;
+  flourKgStandardText: string;
+  controlCGText: string;
+  controlCHText: string;
+  dbStatus: string;
+  dcStatus: string;
   address: string;
   latitude: number;
   longitude: number;
@@ -236,9 +254,9 @@ serve(async (req) => {
       });
     }
 
-    /** Valores crudos A:BW (misma lectura que read, sin filtrar ni mapear) — para vista previa en la app */
+    /** Valores crudos A:DC (misma lectura que read, sin filtrar ni mapear) — para vista previa en la app */
     if (action === "readPreview") {
-      const rangeA1 = tabRange(sheetTab || undefined, "A:BW");
+      const rangeA1 = tabRange(sheetTab || undefined, "A:DC");
       const range = encodeURIComponent(rangeA1);
       const res = await fetch(`${baseUrl}/values/${range}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -258,7 +276,7 @@ serve(async (req) => {
 
     if (action === "read") {
       const range = encodeURIComponent(
-        tabRange(sheetTab || undefined, "A:BW"),
+        tabRange(sheetTab || undefined, "A:DC"),
       );
       const res = await fetch(`${baseUrl}/values/${range}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -277,11 +295,20 @@ serve(async (req) => {
         .map((r) => ({
           recordDate: parseDateOnly(cell(r, COL_DATE)),
           listaNombre: cell(r, COL_LISTA_NOMBRE),
+          flourTotalText: cell(r, COL_FLOUR_TOTAL),
+          bakeryQtyText: cell(r, COL_BAKERY_QTY),
+          pastryQtyText: cell(r, COL_PASTRY_QTY),
           name: cell(r, COL_NAME),
           city: cell(r, COL_CITY),
+          contentStatus: cell(r, COL_CONTENT_STATUS),
           facadePhotoUrl: cell(r, COL_FACADE_PHOTO),
           localizedStatus: cell(r, COL_LOCALIZED_STATUS),
           localizedBy: cell(r, COL_LOCALIZED_BY),
+          flourKgStandardText: cell(r, COL_FLOUR_KG_STANDARD),
+          controlCGText: cell(r, COL_CONTROL_CG),
+          controlCHText: cell(r, COL_CONTROL_CH),
+          dbStatus: cell(r, COL_STATUS_DB),
+          dcStatus: cell(r, COL_STATUS_DC),
           address: cell(r, COL_ADDRESS),
           latitude: parseFloat(cell(r, COL_LAT)) || 0,
           longitude: parseFloat(cell(r, COL_LNG)) || 0,
@@ -302,11 +329,12 @@ serve(async (req) => {
       }
 
       const lastRow = rows.length + 1;
-      const columns = ["A", "D", "F", "G", "H", "AL", "AM", "AU", "AY", "AZ", "BI", "BV", "BW"];
+      // Solo columnas gestionadas por la app; M/N/O y reglas de Contenido se leen pero no se pisan.
+      const columns = ["A", "D", "F", "G", "H", "AL", "AM", "AU", "AY", "AZ", "BI", "BN", "BV", "BW"];
 
       for (const col of columns) {
         const clearRange = encodeURIComponent(
-          tabRange(sheetTab || undefined, `${col}2:${col}${lastRow}`),
+          tabRange(sheetTab || undefined, `${col}2:${col}`),
         );
         await fetch(`${baseUrl}/values/${clearRange}:clear`, {
           method: "POST",
@@ -316,7 +344,7 @@ serve(async (req) => {
 
       const headersToWrite: Array<[string, string]> = [
         ["A1:A1", "Fecha"],
-        ["D1:D1", "Nombre"],
+        ["D1:D1", "Encuestador"],
         ["F1:F1", "Teléfono"],
         ["G1:G1", "Contacto"],
         ["H1:H1", "Notas"],
@@ -326,6 +354,7 @@ serve(async (req) => {
         ["AY1:AY1", "Latitud"],
         ["AZ1:AZ1", "Longitud"],
         ["BI1:BI1", "Ciudad"],
+        ["BN1:BN1", "Estado contenido"],
         ["BV1:BV1", "Localización"],
         ["BW1:BW1", "Localización por"],
       ];
@@ -354,6 +383,7 @@ serve(async (req) => {
           ["AY", rows.map((r) => String(r.latitude ?? ""))],
           ["AZ", rows.map((r) => String(r.longitude ?? ""))],
           ["BI", rows.map((r) => r.city || "")],
+          ["BN", rows.map((r) => r.contentStatus || "")],
           ["BV", rows.map((r) => r.localizedStatus || "")],
           ["BW", rows.map((r) => r.localizedBy || "")],
         ];
