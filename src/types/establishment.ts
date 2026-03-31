@@ -1,5 +1,7 @@
 export interface Establishment {
   id: string;
+  /** Fila real en Google Sheets (1-based), para updates puntuales sin reescritura masiva. */
+  sheetRowNumber?: number;
   /** Fecha del registro (solo día), derivada de la columna A (YYYY-MM-DD). */
   recordDate: string;
   /** Encuestador en Google Sheets (columna D). */

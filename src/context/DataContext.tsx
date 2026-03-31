@@ -138,6 +138,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
       const importedRaw: Establishment[] = (data.data || []).map(
         (row: Omit<Establishment, "id">) => ({
+          sheetRowNumber: typeof row.sheetRowNumber === "number" ? row.sheetRowNumber : undefined,
           recordDate: row.recordDate ?? "",
           listaNombre: row.listaNombre ?? "",
           name: row.name ?? "",
@@ -208,6 +209,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     try {
       const source = rowsOverride ?? establishments;
       const rows = source.map(({
+        sheetRowNumber,
         recordDate,
         listaNombre,
         name,
@@ -233,6 +235,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         contactName,
         notes,
       }) => ({
+        sheetRowNumber,
         recordDate,
         listaNombre,
         name,

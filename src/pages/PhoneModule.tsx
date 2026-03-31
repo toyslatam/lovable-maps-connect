@@ -13,9 +13,10 @@ import {
 } from "@/lib/phoneContent";
 import { toast } from "sonner";
 import { PHONE_STATUS_OPTIONS } from "@/lib/statusOptions";
+import { invokeGoogleSheets } from "@/lib/invokeGoogleSheets";
 
 const PhoneModule = () => {
-  const { establishments, updateEstablishment, saveToSheets } = useData();
+  const { establishments, updateEstablishment } = useData();
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<Establishment | undefined>();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -53,12 +54,19 @@ const PhoneModule = () => {
 
   const handleSavePhoneStatus = async () => {
     if (!selected) return;
+    if (!selected.sheetRowNumber) {
+      toast.error("No se encontró la fila en Sheets para este registro");
+      return;
+    }
     const updated: Establishment = { ...selected, phoneStatus: phoneStatusDraft.trim() };
-    const nextRows = establishments.map((row) => (row.id === updated.id ? updated : row));
     updateEstablishment(updated, { skipAutoSync: true });
     try {
       setSavingPhoneStatus(true);
-      await saveToSheets(nextRows);
+      await invokeGoogleSheets({
+        action: "updateStatus",
+        rowNumber: selected.sheetRowNumber,
+        phoneStatus: updated.phoneStatus,
+      });
       toast.success("Estado telefónico guardado");
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "No se pudo guardar");

@@ -35,6 +35,7 @@ const COL_LOCALIZED_STATUS = 73; // BV
 const COL_LOCALIZED_BY = 74; // BW
 
 interface SheetRow {
+  sheetRowNumber?: number;
   recordDate: string;
   listaNombre: string;
   locality: string;
@@ -292,11 +293,14 @@ serve(async (req) => {
       }
 
       const rows: string[][] = json.values || [];
-      const dataRows = rows.filter((r) => !isProbablyHeaderRow(r));
+      const indexedRows = rows
+        .map((r, idx) => ({ row: r, rowNumber: idx + 1 }))
+        .filter(({ row }) => !isProbablyHeaderRow(row));
 
-      const establishments: SheetRow[] = dataRows
-        .filter((r) => cell(r, COL_NAME))
-        .map((r) => ({
+      const establishments: SheetRow[] = indexedRows
+        .filter(({ row }) => cell(row, COL_NAME))
+        .map(({ row: r, rowNumber }) => ({
+          sheetRowNumber: rowNumber,
           recordDate: parseDateOnly(cell(r, COL_DATE)),
           listaNombre: cell(r, COL_LISTA_NOMBRE),
           locality: cell(r, COL_LOCALITY),
@@ -421,6 +425,83 @@ serve(async (req) => {
       }
 
       return new Response(JSON.stringify({ success: true, updated: rows.length }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "updateStatus") {
+      const rowNumber = Number(parsedBody.rowNumber || 0);
+      if (!Number.isFinite(rowNumber) || rowNumber < 2) {
+        throw new Error("rowNumber inválido para updateStatus");
+      }
+
+      const updates: Array<[string, string]> = [];
+      if (typeof parsedBody.phoneStatus === "string") updates.push(["BS", parsedBody.phoneStatus]);
+      if (typeof parsedBody.contentStatus === "string") updates.push(["BN", parsedBody.contentStatus]);
+      if (typeof parsedBody.localizedStatus === "string") updates.push(["BV", parsedBody.localizedStatus]);
+      if (typeof parsedBody.localizedBy === "string") updates.push(["BW", parsedBody.localizedBy]);
+
+      if (updates.length === 0) {
+        throw new Error("No hay campos de estado para actualizar");
+      }
+
+      for (const [col, value] of updates) {
+        const range = encodeURIComponent(
+          tabRange(sheetTab || undefined, `${col}${rowNumber}:${col}${rowNumber}`),
+        );
+        const writeRes = await fetch(`${baseUrl}/values/${range}?valueInputOption=RAW`, {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ values: [[value]] }),
+        });
+        const writeJson = await writeRes.json();
+        if (!writeRes.ok) {
+          throw new Error(`Sheets updateStatus error [${writeRes.status}]: ${JSON.stringify(writeJson)}`);
+        }
+      }
+
+      return new Response(JSON.stringify({ success: true, updated: updates.length }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "updateContentFields") {
+      const rowNumber = Number(parsedBody.rowNumber || 0);
+      if (!Number.isFinite(rowNumber) || rowNumber < 2) {
+        throw new Error("rowNumber inválido para updateContentFields");
+      }
+
+      const updates: Array<[string, string]> = [];
+      if (typeof parsedBody.flourTotalText === "string") updates.push(["M", parsedBody.flourTotalText]);
+      if (typeof parsedBody.bakeryQtyText === "string") updates.push(["N", parsedBody.bakeryQtyText]);
+      if (typeof parsedBody.pastryQtyText === "string") updates.push(["O", parsedBody.pastryQtyText]);
+
+      if (updates.length === 0) {
+        throw new Error("No hay campos M/N/O para actualizar");
+      }
+
+      for (const [col, value] of updates) {
+        const range = encodeURIComponent(
+          tabRange(sheetTab || undefined, `${col}${rowNumber}:${col}${rowNumber}`),
+        );
+        const writeRes = await fetch(`${baseUrl}/values/${range}?valueInputOption=RAW`, {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ values: [[value]] }),
+        });
+        const writeJson = await writeRes.json();
+        if (!writeRes.ok) {
+          throw new Error(`Sheets updateContentFields error [${writeRes.status}]: ${JSON.stringify(writeJson)}`);
+        }
+      }
+
+      return new Response(JSON.stringify({ success: true, updated: updates.length }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

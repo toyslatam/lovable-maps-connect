@@ -24,6 +24,7 @@ import { Establishment } from "@/types/establishment";
 import { formatRecordDateEs } from "@/lib/dateOnly";
 import { toast } from "sonner";
 import { GoogleMap, MarkerF, useJsApiLoader } from "@react-google-maps/api";
+import { invokeGoogleSheets } from "@/lib/invokeGoogleSheets";
 
 const FILTER_ALL = "__all__";
 
@@ -128,7 +129,7 @@ function MapsMenu({ establishment }: { establishment: Establishment }) {
 
 const LocationModule = () => {
   const { user } = useAuth();
-  const { establishments, addEstablishment, updateEstablishment, deleteEstablishment, saveToSheets } = useData();
+  const { establishments, addEstablishment, updateEstablishment, deleteEstablishment } = useData();
   const [search, setSearch] = useState("");
   const [searchField, setSearchField] = useState<SearchField>("address");
   const [filterEstName, setFilterEstName] = useState<string>(FILTER_ALL);
@@ -259,16 +260,24 @@ const LocationModule = () => {
 
   const handleSaveLocalized = async () => {
     if (!selected) return;
+    if (!selected.sheetRowNumber) {
+      toast.error("No se encontró la fila en Sheets para este registro");
+      return;
+    }
     const updated: Establishment = {
       ...selected,
       localizedStatus: localizedStatus.trim(),
       localizedBy: localizedBy.trim() || (user?.name || ""),
     };
-    const nextRows = establishments.map((row) => (row.id === updated.id ? updated : row));
     updateEstablishment(updated, { skipAutoSync: true });
     try {
       setSavingLocalized(true);
-      await saveToSheets(nextRows);
+      await invokeGoogleSheets({
+        action: "updateStatus",
+        rowNumber: selected.sheetRowNumber,
+        localizedStatus: updated.localizedStatus,
+        localizedBy: updated.localizedBy,
+      });
       toast.success("Localización guardada en Google Sheets");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "No se pudo guardar";
