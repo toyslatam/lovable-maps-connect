@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertCircle, CheckCircle2, Image as ImageIcon, Info } from "lucide-react";
 import { toast } from "sonner";
@@ -12,8 +13,6 @@ import { getEstablishmentKey, loadPhoneContentMap, phoneTextToKg, sheetTextToKg 
 import { PHONE_STATUS_OPTIONS } from "@/lib/statusOptions";
 import { invokeGoogleSheets } from "@/lib/invokeGoogleSheets";
 
-const SURVEYOR_ALL = "__all__";
-const ESTABLISHMENT_ALL = "__all__";
 const CONTENT_STATUS_OPTIONS = PHONE_STATUS_OPTIONS;
 
 function getSurveyor(row: Establishment): string {
@@ -92,10 +91,20 @@ const YEAST_RANGES: Record<"panaderia" | "pasteleria" | "mixto", YeastRange> = {
   mixto: { freshMinPct: 0.015, freshMaxPct: 0.035, dryMinPct: 0.005, dryMaxPct: 0.012 },
 };
 
+function toKgFromYeastText(text: string): number | null {
+  const s = (text || "").toLowerCase();
+  const n = toNumber(s);
+  if (n === null) return null;
+  if (s.includes("kg") || s.includes("kilo")) return n;
+  if (s.includes("lb") || s.includes("libra")) return n * 0.453592;
+  if (s.includes("g") && !s.includes("kg")) return n / 1000;
+  return n;
+}
+
 export default function ContentModule() {
   const { establishments, updateEstablishment } = useData();
-  const [surveyorFilter, setSurveyorFilter] = useState(SURVEYOR_ALL);
-  const [establishmentFilter, setEstablishmentFilter] = useState(ESTABLISHMENT_ALL);
+  const [selectedSurveyors, setSelectedSurveyors] = useState<string[]>([]);
+  const [establishmentQuery, setEstablishmentQuery] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -104,6 +113,10 @@ export default function ContentModule() {
   const [flourTotalText, setFlourTotalText] = useState("");
   const [bakeryQtyText, setBakeryQtyText] = useState("");
   const [pastryQtyText, setPastryQtyText] = useState("");
+  const [levapanText, setLevapanText] = useState("");
+  const [fleischmanText, setFleischmanText] = useState("");
+  const [levasafText, setLevasafText] = useState("");
+  const [otherYeastText, setOtherYeastText] = useState("");
   const [savingContentStatus, setSavingContentStatus] = useState(false);
   const [savingContentFields, setSavingContentFields] = useState(false);
   const [kgInfoOpen, setKgInfoOpen] = useState(false);
@@ -115,22 +128,17 @@ export default function ContentModule() {
     return Array.from(set).filter(Boolean).sort((a, b) => a.localeCompare(b, "es"));
   }, [establishments]);
 
-  const establishmentNames = useMemo(() => {
-    const set = new Set<string>();
-    establishments.forEach((r) => { if ((r.name || "").trim()) set.add(r.name.trim()); });
-    return Array.from(set).sort((a, b) => a.localeCompare(b, "es"));
-  }, [establishments]);
-
   const filteredRows = useMemo(() => {
+    const q = establishmentQuery.trim().toLowerCase();
     return establishments.filter((r) => {
-      if (surveyorFilter !== SURVEYOR_ALL && getSurveyor(r) !== surveyorFilter) return false;
-      if (establishmentFilter !== ESTABLISHMENT_ALL && (r.name || "").trim() !== establishmentFilter) return false;
+      if (selectedSurveyors.length > 0 && !selectedSurveyors.includes(getSurveyor(r))) return false;
+      if (q && !(r.name || "").toLowerCase().includes(q)) return false;
       const d = (r.recordDate || "").trim();
       if (dateFrom && (!d || d < dateFrom)) return false;
       if (dateTo && (!d || d > dateTo)) return false;
       return true;
     });
-  }, [establishments, surveyorFilter, establishmentFilter, dateFrom, dateTo]);
+  }, [establishments, selectedSurveyors, establishmentQuery, dateFrom, dateTo]);
 
   const grouped = useMemo(() => {
     const bySurveyor = new Map<string, Establishment[]>();
@@ -205,13 +213,33 @@ export default function ContentModule() {
     return "pasteleria";
   })();
   const yeastRange = YEAST_RANGES[productionType];
+  const levapanKg = toKgFromYeastText(levapanText) ?? 0;
+  const fleischmanKg = toKgFromYeastText(fleischmanText) ?? 0;
+  const levasafKg = toKgFromYeastText(levasafText) ?? 0;
+  const otherYeastKg = toKgFromYeastText(otherYeastText) ?? 0;
+  const yeastTotalKg = levapanKg + fleischmanKg + levasafKg + otherYeastKg;
+  const yeastPctEstimate = flourKg && flourKg > 0 ? (yeastTotalKg / flourKg) * 100 : null;
 
   useEffect(() => {
     setContentStatus(selected?.contentStatus || "");
     setFlourTotalText(selected?.flourTotalText || "");
     setBakeryQtyText(selected?.bakeryQtyText || "");
     setPastryQtyText(selected?.pastryQtyText || "");
-  }, [selected?.id, selected?.contentStatus, selected?.flourTotalText, selected?.bakeryQtyText, selected?.pastryQtyText]);
+    setLevapanText(selected?.levapanText || "");
+    setFleischmanText(selected?.fleischmanText || "");
+    setLevasafText(selected?.levasafText || "");
+    setOtherYeastText(selected?.otherYeastText || "");
+  }, [
+    selected?.id,
+    selected?.contentStatus,
+    selected?.flourTotalText,
+    selected?.bakeryQtyText,
+    selected?.pastryQtyText,
+    selected?.levapanText,
+    selected?.fleischmanText,
+    selected?.levasafText,
+    selected?.otherYeastText,
+  ]);
 
   useEffect(() => {
     const reload = () => setPhoneMap(loadPhoneContentMap());
@@ -251,6 +279,10 @@ export default function ContentModule() {
       flourTotalText: flourTotalText.trim(),
       bakeryQtyText: bakeryQtyText.trim(),
       pastryQtyText: pastryQtyText.trim(),
+      levapanText: levapanText.trim(),
+      fleischmanText: fleischmanText.trim(),
+      levasafText: levasafText.trim(),
+      otherYeastText: otherYeastText.trim(),
     };
     updateEstablishment(updated, { skipAutoSync: true });
     try {
@@ -261,6 +293,10 @@ export default function ContentModule() {
         flourTotalText: updated.flourTotalText,
         bakeryQtyText: updated.bakeryQtyText,
         pastryQtyText: updated.pastryQtyText,
+        levapanText: updated.levapanText,
+        fleischmanText: updated.fleischmanText,
+        levasafText: updated.levasafText,
+        otherYeastText: updated.otherYeastText,
       });
       toast.success("Cantidades guardadas");
     } catch (err: unknown) {
@@ -280,23 +316,46 @@ export default function ContentModule() {
       <div className="grid lg:grid-cols-4 gap-3 reveal-up reveal-up-delay-1">
         <div className="space-y-2">
           <Label>Filtrar encuestador</Label>
-          <Select value={surveyorFilter} onValueChange={setSurveyorFilter}>
-            <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value={SURVEYOR_ALL}>Todos</SelectItem>
-              {surveyors.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-            </SelectContent>
-          </Select>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" variant="outline" className="h-10 w-full justify-start font-normal">
+                {selectedSurveyors.length === 0
+                  ? "Todos"
+                  : selectedSurveyors.length === 1
+                    ? selectedSurveyors[0]
+                    : `${selectedSurveyors.length} seleccionados`}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-[320px] max-h-72 overflow-y-auto">
+              {surveyors.map((s) => (
+                <DropdownMenuCheckboxItem
+                  key={s}
+                  checked={selectedSurveyors.includes(s)}
+                  onCheckedChange={(checked) => {
+                    setSelectedSurveyors((prev) => (
+                      checked ? [...prev, s] : prev.filter((x) => x !== s)
+                    ));
+                  }}
+                >
+                  {s}
+                </DropdownMenuCheckboxItem>
+              ))}
+              {selectedSurveyors.length > 0 ? (
+                <Button type="button" variant="ghost" size="sm" className="w-full mt-1" onClick={() => setSelectedSurveyors([])}>
+                  Limpiar selección
+                </Button>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
         <div className="space-y-2">
-          <Label>Nombre establecimiento</Label>
-          <Select value={establishmentFilter} onValueChange={setEstablishmentFilter}>
-            <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ESTABLISHMENT_ALL}>Todos</SelectItem>
-              {establishmentNames.map((n) => <SelectItem key={n} value={n}>{n}</SelectItem>)}
-            </SelectContent>
-          </Select>
+          <Label>Búsqueda establecimiento</Label>
+          <Input
+            value={establishmentQuery}
+            onChange={(e) => setEstablishmentQuery(e.target.value)}
+            placeholder="Escribe nombre del establecimiento..."
+            className="h-10"
+          />
         </div>
         <div className="space-y-2">
           <Label>Fecha desde</Label>
@@ -371,7 +430,7 @@ export default function ContentModule() {
               </div>
 
               <div className="rounded-lg border p-3 space-y-3">
-                <p className="text-xs text-muted-foreground">Cantidades editables (M, N, O)</p>
+                <p className="text-xs text-muted-foreground">Cantidades editables (M, N, O, Q, R, S, T)</p>
                 <div className="grid sm:grid-cols-3 gap-3">
                   <div className="space-y-1">
                     <Label className="text-xs text-muted-foreground">Total de harina que consume</Label>
@@ -387,6 +446,24 @@ export default function ContentModule() {
                     <Label className="text-xs text-muted-foreground">Elaborar pastelería</Label>
                     <Input value={pastryQtyText} onChange={(e) => setPastryQtyText(e.target.value)} className="h-9" />
                     <p className="text-[11px] text-muted-foreground">KG estimados: {pastryKg === null ? "Sin dato" : pastryKg.toFixed(2)}</p>
+                  </div>
+                </div>
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Levapan (Q)</Label>
+                    <Input value={levapanText} onChange={(e) => setLevapanText(e.target.value)} className="h-9" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Fleischman (R)</Label>
+                    <Input value={fleischmanText} onChange={(e) => setFleischmanText(e.target.value)} className="h-9" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Levasaf (S)</Label>
+                    <Input value={levasafText} onChange={(e) => setLevasafText(e.target.value)} className="h-9" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Otras levaduras (T)</Label>
+                    <Input value={otherYeastText} onChange={(e) => setOtherYeastText(e.target.value)} className="h-9" />
                   </div>
                 </div>
                 <Button type="button" size="sm" className="h-9" onClick={handleSaveContentFields} disabled={savingContentFields}>
@@ -467,41 +544,51 @@ export default function ContentModule() {
           <DialogHeader>
             <DialogTitle>Guía rápida de kg y rangos de levadura</DialogTitle>
             <p className="text-xs text-muted-foreground">
-              Referencia práctica basada en porcentaje panadero (rango general web): fresca 1%-3% y seca 0.3%-1% aprox., ajustado por tipo de producción.
+              Tabla de referencia tipo negocio (como la guía compartida) y estimación con tus datos cargados.
             </p>
           </DialogHeader>
           <div className="space-y-3 text-sm">
             <div className="rounded-md border p-3 bg-muted/20">
               <p>Tipo detectado: <span className="font-medium capitalize">{productionType === "mixto" ? "Panadería + pastelería" : productionType}</span></p>
               <p>Harina total estimada: <span className="font-medium">{flourKg === null ? "Sin dato" : `${flourKg.toFixed(2)} kg`}</span></p>
+              <p>
+                Levadura total estimada (Q+R+S+T):{" "}
+                <span className="font-medium">{yeastTotalKg.toFixed(2)} kg</span>
+                {yeastPctEstimate === null ? "" : ` · ${yeastPctEstimate.toFixed(2)}% sobre harina`}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Rango normal detectado: {(yeastRange.freshMinPct * 100).toFixed(1)}% - {(yeastRange.freshMaxPct * 100).toFixed(1)}% (fresca)
+              </p>
             </div>
             <div className="overflow-auto rounded-md border">
               <table className="w-full text-xs">
                 <thead className="bg-muted/30">
                   <tr>
-                    <th className="text-left p-2">Tipo</th>
-                    <th className="text-left p-2">Levadura fresca</th>
-                    <th className="text-left p-2">Levadura seca</th>
-                    <th className="text-left p-2">Rango en kg para tu harina</th>
+                    <th className="text-left p-2">Tipo de negocio</th>
+                    <th className="text-left p-2">Harina semanal</th>
+                    <th className="text-left p-2">Bultos (50 kg)</th>
+                    <th className="text-left p-2">Tipo producción</th>
+                    <th className="text-left p-2">Levadura % normal</th>
+                    <th className="text-left p-2">Levadura kg estimada</th>
                   </tr>
                 </thead>
                 <tbody>
                   {([
-                    ["panaderia", "Panadería sola"],
-                    ["mixto", "Panadería + pastelería"],
-                    ["pasteleria", "Pastelería sola"],
-                  ] as const).map(([key, label]) => {
+                    ["Pequeña (solo pan)", 200, 800, "panaderia", "Panadería"],
+                    ["Pequeña mixta", 200, 800, "mixto", "Pan + pastelería"],
+                    ["Pequeña (solo pastelería)", 200, 800, "pasteleria", "Pastelería"],
+                  ] as const).map(([businessLabel, flourMin, flourMax, key, prodLabel]) => {
                     const r = YEAST_RANGES[key];
-                    const minFresh = flourKg === null ? "-" : `${(flourKg * r.freshMinPct).toFixed(3)} kg`;
-                    const maxFresh = flourKg === null ? "-" : `${(flourKg * r.freshMaxPct).toFixed(3)} kg`;
-                    const minDry = flourKg === null ? "-" : `${(flourKg * r.dryMinPct).toFixed(3)} kg`;
-                    const maxDry = flourKg === null ? "-" : `${(flourKg * r.dryMaxPct).toFixed(3)} kg`;
+                    const minKg = flourMin * r.freshMinPct;
+                    const maxKg = flourMax * r.freshMaxPct;
                     return (
-                      <tr key={key} className="border-t">
-                        <td className="p-2">{label}</td>
+                      <tr key={businessLabel} className="border-t">
+                        <td className="p-2">{businessLabel}</td>
+                        <td className="p-2">{flourMin} - {flourMax} kg</td>
+                        <td className="p-2">{Math.round(flourMin / 50)} - {Math.round(flourMax / 50)}</td>
+                        <td className="p-2">{prodLabel}</td>
                         <td className="p-2">{(r.freshMinPct * 100).toFixed(1)}% - {(r.freshMaxPct * 100).toFixed(1)}%</td>
-                        <td className="p-2">{(r.dryMinPct * 100).toFixed(1)}% - {(r.dryMaxPct * 100).toFixed(1)}%</td>
-                        <td className="p-2">Fresca {minFresh} a {maxFresh} · Seca {minDry} a {maxDry}</td>
+                        <td className="p-2">{minKg.toFixed(1)} - {maxKg.toFixed(1)} kg</td>
                       </tr>
                     );
                   })}

@@ -28,6 +28,14 @@ export interface Establishment {
   bakeryQtyText: string;
   /** Elaborar pastelería (columna O, texto libre). */
   pastryQtyText: string;
+  /** Levadura marca Levapan (columna Q, texto libre). */
+  levapanText?: string;
+  /** Levadura marca Fleischman (columna R, texto libre). */
+  fleischmanText?: string;
+  /** Levadura marca Levasaf (columna S, texto libre). */
+  levasafText?: string;
+  /** Otras levaduras (columna T, texto libre). */
+  otherYeastText?: string;
   /** Cantidad estandarizada en kg (columna CD, si existe en la hoja). */
   flourKgStandardText: string;
   /** Datos de control (columna CG). */

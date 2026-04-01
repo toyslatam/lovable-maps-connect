@@ -17,6 +17,10 @@ const COL_NOTES = 7;
 const COL_FLOUR_TOTAL = 12; // M
 const COL_BAKERY_QTY = 13; // N
 const COL_PASTRY_QTY = 14; // O
+const COL_LEVAPAN = 16; // Q
+const COL_FLEISCHMAN = 17; // R
+const COL_LEVASAF = 18; // S
+const COL_OTHER_YEAST = 19; // T
 const COL_LOCALITY = 35; // AJ
 const COL_NAME = 37; // AL
 const COL_ADDRESS = 38; // AM
@@ -49,6 +53,10 @@ interface SheetRow {
   flourTotalText: string;
   bakeryQtyText: string;
   pastryQtyText: string;
+  levapanText?: string;
+  fleischmanText?: string;
+  levasafText?: string;
+  otherYeastText?: string;
   flourKgStandardText: string;
   controlCGText: string;
   controlCHText: string;
@@ -307,6 +315,10 @@ serve(async (req) => {
           flourTotalText: cell(r, COL_FLOUR_TOTAL),
           bakeryQtyText: cell(r, COL_BAKERY_QTY),
           pastryQtyText: cell(r, COL_PASTRY_QTY),
+          levapanText: cell(r, COL_LEVAPAN),
+          fleischmanText: cell(r, COL_FLEISCHMAN),
+          levasafText: cell(r, COL_LEVASAF),
+          otherYeastText: cell(r, COL_OTHER_YEAST),
           name: cell(r, COL_NAME),
           city: cell(r, COL_CITY),
           contentStatus: cell(r, COL_CONTENT_STATUS),
@@ -478,9 +490,13 @@ serve(async (req) => {
       if (typeof parsedBody.flourTotalText === "string") updates.push(["M", parsedBody.flourTotalText]);
       if (typeof parsedBody.bakeryQtyText === "string") updates.push(["N", parsedBody.bakeryQtyText]);
       if (typeof parsedBody.pastryQtyText === "string") updates.push(["O", parsedBody.pastryQtyText]);
+      if (typeof parsedBody.levapanText === "string") updates.push(["Q", parsedBody.levapanText]);
+      if (typeof parsedBody.fleischmanText === "string") updates.push(["R", parsedBody.fleischmanText]);
+      if (typeof parsedBody.levasafText === "string") updates.push(["S", parsedBody.levasafText]);
+      if (typeof parsedBody.otherYeastText === "string") updates.push(["T", parsedBody.otherYeastText]);
 
       if (updates.length === 0) {
-        throw new Error("No hay campos M/N/O para actualizar");
+        throw new Error("No hay campos M/N/O/Q/R/S/T para actualizar");
       }
 
       for (const [col, value] of updates) {
