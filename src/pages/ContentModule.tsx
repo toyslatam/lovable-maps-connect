@@ -91,13 +91,33 @@ const YEAST_RANGES: Record<"panaderia" | "pasteleria" | "mixto", YeastRange> = {
   mixto: { freshMinPct: 0.015, freshMaxPct: 0.035, dryMinPct: 0.005, dryMaxPct: 0.012 },
 };
 
+function parseYeastText(text: string): { quantity: number | null; price: number | null; unitHint: string } {
+  const raw = (text || "").toLowerCase();
+  const qMatch = raw.match(/cantidad\s*semanal\s*:\s*([0-9]+(?:[.,][0-9]+)?)/i);
+  const pMatch = raw.match(/precio\s*de\s*compra\s*:\s*([0-9]+(?:[.,][0-9]+)?)/i);
+
+  const quantity = qMatch ? Number(qMatch[1].replace(",", ".")) : toNumber(raw);
+  const price = pMatch ? Number(pMatch[1].replace(",", ".")) : null;
+
+  let unitHint = "";
+  if (raw.includes("kg") || raw.includes("kilo")) unitHint = "kg";
+  else if (raw.includes("lb") || raw.includes("libra")) unitHint = "lb";
+  else if (raw.includes("g") && !raw.includes("kg")) unitHint = "g";
+
+  return {
+    quantity: Number.isFinite(quantity as number) ? (quantity as number) : null,
+    price: Number.isFinite(price as number) ? (price as number) : null,
+    unitHint,
+  };
+}
+
 function toKgFromYeastText(text: string): number | null {
-  const s = (text || "").toLowerCase();
-  const n = toNumber(s);
+  const parsed = parseYeastText(text);
+  const n = parsed.quantity;
   if (n === null) return null;
-  if (s.includes("kg") || s.includes("kilo")) return n;
-  if (s.includes("lb") || s.includes("libra")) return n * 0.453592;
-  if (s.includes("g") && !s.includes("kg")) return n / 1000;
+  if (parsed.unitHint === "kg") return n;
+  if (parsed.unitHint === "lb") return n * 0.453592;
+  if (parsed.unitHint === "g") return n / 1000;
   return n;
 }
 
@@ -120,6 +140,7 @@ export default function ContentModule() {
   const [savingContentStatus, setSavingContentStatus] = useState(false);
   const [savingContentFields, setSavingContentFields] = useState(false);
   const [kgInfoOpen, setKgInfoOpen] = useState(false);
+  const [photoZoomOpen, setPhotoZoomOpen] = useState(false);
   const [phoneMap, setPhoneMap] = useState(() => loadPhoneContentMap());
 
   const surveyors = useMemo(() => {
@@ -217,6 +238,10 @@ export default function ContentModule() {
   const fleischmanKg = toKgFromYeastText(fleischmanText) ?? 0;
   const levasafKg = toKgFromYeastText(levasafText) ?? 0;
   const otherYeastKg = toKgFromYeastText(otherYeastText) ?? 0;
+  const levapanParsed = parseYeastText(levapanText);
+  const fleischmanParsed = parseYeastText(fleischmanText);
+  const levasafParsed = parseYeastText(levasafText);
+  const otherYeastParsed = parseYeastText(otherYeastText);
   const yeastTotalKg = levapanKg + fleischmanKg + levasafKg + otherYeastKg;
   const yeastPctEstimate = flourKg && flourKg > 0 ? (yeastTotalKg / flourKg) * 100 : null;
 
@@ -251,16 +276,37 @@ export default function ContentModule() {
     };
   }, []);
 
+  const resolveRowNumber = async (row: Establishment): Promise<number | null> => {
+    if (row.sheetRowNumber) return row.sheetRowNumber;
+    try {
+      const data = await invokeGoogleSheets({
+        action: "findRow",
+        name: row.name,
+        address: row.address,
+        recordDate: row.recordDate,
+        listaNombre: row.listaNombre,
+        locality: row.locality,
+      });
+      const n = Number(data.rowNumber || 0);
+      if (!Number.isFinite(n) || n < 2) return null;
+      updateEstablishment({ ...row, sheetRowNumber: n }, { skipAutoSync: true });
+      return n;
+    } catch {
+      return null;
+    }
+  };
+
   const handleSaveContentStatus = async () => {
     if (!selected) return;
-    if (!selected.sheetRowNumber) return toast.error("No se encontró la fila en Sheets para este registro");
+    const rowNumber = await resolveRowNumber(selected);
+    if (!rowNumber) return toast.error("No se encontró la fila en Sheets para este registro");
     const updated: Establishment = { ...selected, contentStatus: contentStatus.trim() };
     updateEstablishment(updated, { skipAutoSync: true });
     try {
       setSavingContentStatus(true);
       await invokeGoogleSheets({
         action: "updateStatus",
-        rowNumber: selected.sheetRowNumber,
+        rowNumber,
         contentStatus: updated.contentStatus,
       });
       toast.success("Estado contenido guardado");
@@ -273,7 +319,8 @@ export default function ContentModule() {
 
   const handleSaveContentFields = async () => {
     if (!selected) return;
-    if (!selected.sheetRowNumber) return toast.error("No se encontró la fila en Sheets para este registro");
+    const rowNumber = await resolveRowNumber(selected);
+    if (!rowNumber) return toast.error("No se encontró la fila en Sheets para este registro");
     const updated: Establishment = {
       ...selected,
       flourTotalText: flourTotalText.trim(),
@@ -289,7 +336,7 @@ export default function ContentModule() {
       setSavingContentFields(true);
       await invokeGoogleSheets({
         action: "updateContentFields",
-        rowNumber: selected.sheetRowNumber,
+        rowNumber,
         flourTotalText: updated.flourTotalText,
         bakeryQtyText: updated.bakeryQtyText,
         pastryQtyText: updated.pastryQtyText,
@@ -430,7 +477,7 @@ export default function ContentModule() {
               </div>
 
               <div className="rounded-lg border p-3 space-y-3">
-                <p className="text-xs text-muted-foreground">Cantidades editables (M, N, O, Q, R, S, T)</p>
+                <p className="text-xs text-muted-foreground">Cantidades editables (M, N, O, R, S, T, U)</p>
                 <div className="grid sm:grid-cols-3 gap-3">
                   <div className="space-y-1">
                     <Label className="text-xs text-muted-foreground">Total de harina que consume</Label>
@@ -450,20 +497,32 @@ export default function ContentModule() {
                 </div>
                 <div className="grid sm:grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Levapan (Q)</Label>
+                    <Label className="text-xs text-muted-foreground">Levapan (R)</Label>
                     <Input value={levapanText} onChange={(e) => setLevapanText(e.target.value)} className="h-9" />
+                    <p className="text-[11px] text-muted-foreground">
+                      Cantidad: {levapanParsed.quantity ?? "Sin dato"} · Precio: {levapanParsed.price ?? "Sin dato"}
+                    </p>
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Fleischman (R)</Label>
+                    <Label className="text-xs text-muted-foreground">Fleischman (S)</Label>
                     <Input value={fleischmanText} onChange={(e) => setFleischmanText(e.target.value)} className="h-9" />
+                    <p className="text-[11px] text-muted-foreground">
+                      Cantidad: {fleischmanParsed.quantity ?? "Sin dato"} · Precio: {fleischmanParsed.price ?? "Sin dato"}
+                    </p>
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Levasaf (S)</Label>
+                    <Label className="text-xs text-muted-foreground">Levasaf (T)</Label>
                     <Input value={levasafText} onChange={(e) => setLevasafText(e.target.value)} className="h-9" />
+                    <p className="text-[11px] text-muted-foreground">
+                      Cantidad: {levasafParsed.quantity ?? "Sin dato"} · Precio: {levasafParsed.price ?? "Sin dato"}
+                    </p>
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Otras levaduras (T)</Label>
+                    <Label className="text-xs text-muted-foreground">Otra marca fresca (U)</Label>
                     <Input value={otherYeastText} onChange={(e) => setOtherYeastText(e.target.value)} className="h-9" />
+                    <p className="text-[11px] text-muted-foreground">
+                      Cantidad: {otherYeastParsed.quantity ?? "Sin dato"} · Precio: {otherYeastParsed.price ?? "Sin dato"}
+                    </p>
                   </div>
                 </div>
                 <Button type="button" size="sm" className="h-9" onClick={handleSaveContentFields} disabled={savingContentFields}>
@@ -510,17 +569,23 @@ export default function ContentModule() {
               <div className="rounded-lg border p-3">
                 <p className="text-sm font-medium mb-2 flex items-center gap-2"><ImageIcon className="w-4 h-4" /> Foto de fachada</p>
                 {photoUrl ? (
-                  <img
-                    src={photoUrl}
-                    alt={`Fachada de ${selected.name}`}
-                    className="w-full h-72 object-contain rounded-md border bg-muted/20"
-                    loading="lazy"
-                    referrerPolicy="no-referrer"
-                    onError={() => {
-                      if (photoIdx < photoCandidates.length - 1) setPhotoIdx((v) => v + 1);
-                      else setPhotoIdx(photoCandidates.length);
-                    }}
-                  />
+                  <div className="space-y-2">
+                    <img
+                      src={photoUrl}
+                      alt={`Fachada de ${selected.name}`}
+                      className="w-full h-72 object-contain rounded-md border bg-muted/20 cursor-zoom-in"
+                      loading="lazy"
+                      referrerPolicy="no-referrer"
+                      onClick={() => setPhotoZoomOpen(true)}
+                      onError={() => {
+                        if (photoIdx < photoCandidates.length - 1) setPhotoIdx((v) => v + 1);
+                        else setPhotoIdx(photoCandidates.length);
+                      }}
+                    />
+                    <Button type="button" variant="outline" size="sm" onClick={() => setPhotoZoomOpen(true)}>
+                      Ampliar foto
+                    </Button>
+                  </div>
                 ) : (
                   <p className="text-sm text-muted-foreground">No se pudo cargar la foto con la URL proporcionada.</p>
                 )}
@@ -595,6 +660,27 @@ export default function ContentModule() {
                 </tbody>
               </table>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={photoZoomOpen} onOpenChange={setPhotoZoomOpen}>
+        <DialogContent className="max-w-6xl max-h-[95vh]">
+          <DialogHeader>
+            <DialogTitle>Foto de fachada ampliada</DialogTitle>
+          </DialogHeader>
+          <div className="w-full h-[80vh] rounded-md border bg-muted/20 overflow-hidden">
+            {photoUrl ? (
+              <img
+                src={photoUrl}
+                alt={`Fachada ampliada de ${selected?.name || ""}`}
+                className="w-full h-full object-contain"
+                loading="lazy"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <p className="text-sm text-muted-foreground p-4">No hay foto para ampliar.</p>
+            )}
           </div>
         </DialogContent>
       </Dialog>

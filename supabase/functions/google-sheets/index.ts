@@ -17,10 +17,10 @@ const COL_NOTES = 7;
 const COL_FLOUR_TOTAL = 12; // M
 const COL_BAKERY_QTY = 13; // N
 const COL_PASTRY_QTY = 14; // O
-const COL_LEVAPAN = 16; // Q
-const COL_FLEISCHMAN = 17; // R
-const COL_LEVASAF = 18; // S
-const COL_OTHER_YEAST = 19; // T
+const COL_LEVAPAN = 17; // R
+const COL_FLEISCHMAN = 18; // S
+const COL_LEVASAF = 19; // T
+const COL_OTHER_YEAST = 20; // U
 const COL_LOCALITY = 35; // AJ
 const COL_NAME = 37; // AL
 const COL_ADDRESS = 38; // AM
@@ -480,6 +480,56 @@ serve(async (req) => {
       });
     }
 
+    if (action === "findRow") {
+      const targetName = typeof parsedBody.name === "string" ? parsedBody.name.trim().toLowerCase() : "";
+      const targetAddress = typeof parsedBody.address === "string" ? parsedBody.address.trim().toLowerCase() : "";
+      const targetDate = typeof parsedBody.recordDate === "string" ? parsedBody.recordDate.trim() : "";
+      const targetSurveyor = typeof parsedBody.listaNombre === "string" ? parsedBody.listaNombre.trim().toLowerCase() : "";
+      const targetLocality = typeof parsedBody.locality === "string" ? parsedBody.locality.trim().toLowerCase() : "";
+
+      if (!targetName) {
+        throw new Error("findRow requiere al menos name");
+      }
+
+      const range = encodeURIComponent(tabRange(sheetTab || undefined, "A:DC"));
+      const res = await fetch(`${baseUrl}/values/${range}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(`Sheets findRow read error [${res.status}]: ${JSON.stringify(json)}`);
+      }
+
+      const rows: string[][] = json.values || [];
+      for (let i = 0; i < rows.length; i += 1) {
+        const r = rows[i];
+        if (isProbablyHeaderRow(r)) continue;
+        const rowName = cell(r, COL_NAME).toLowerCase();
+        if (rowName !== targetName) continue;
+
+        const rowDate = parseDateOnly(cell(r, COL_DATE));
+        const rowAddress = cell(r, COL_ADDRESS).toLowerCase();
+        const rowSurveyor = cell(r, COL_LISTA_NOMBRE).toLowerCase();
+        const rowLocality = cell(r, COL_LOCALITY).toLowerCase();
+
+        const dateMatch = !targetDate || rowDate === targetDate;
+        const addressMatch = !targetAddress || rowAddress === targetAddress;
+        const surveyorMatch = !targetSurveyor || rowSurveyor === targetSurveyor;
+        const localityMatch = !targetLocality || rowLocality === targetLocality;
+
+        if (dateMatch && addressMatch && surveyorMatch && localityMatch) {
+          return new Response(JSON.stringify({ success: true, rowNumber: i + 1 }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
+
+      return new Response(JSON.stringify({ success: false, error: "No se encontró fila coincidente" }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (action === "updateContentFields") {
       const rowNumber = Number(parsedBody.rowNumber || 0);
       if (!Number.isFinite(rowNumber) || rowNumber < 2) {
@@ -490,13 +540,13 @@ serve(async (req) => {
       if (typeof parsedBody.flourTotalText === "string") updates.push(["M", parsedBody.flourTotalText]);
       if (typeof parsedBody.bakeryQtyText === "string") updates.push(["N", parsedBody.bakeryQtyText]);
       if (typeof parsedBody.pastryQtyText === "string") updates.push(["O", parsedBody.pastryQtyText]);
-      if (typeof parsedBody.levapanText === "string") updates.push(["Q", parsedBody.levapanText]);
-      if (typeof parsedBody.fleischmanText === "string") updates.push(["R", parsedBody.fleischmanText]);
-      if (typeof parsedBody.levasafText === "string") updates.push(["S", parsedBody.levasafText]);
-      if (typeof parsedBody.otherYeastText === "string") updates.push(["T", parsedBody.otherYeastText]);
+      if (typeof parsedBody.levapanText === "string") updates.push(["R", parsedBody.levapanText]);
+      if (typeof parsedBody.fleischmanText === "string") updates.push(["S", parsedBody.fleischmanText]);
+      if (typeof parsedBody.levasafText === "string") updates.push(["T", parsedBody.levasafText]);
+      if (typeof parsedBody.otherYeastText === "string") updates.push(["U", parsedBody.otherYeastText]);
 
       if (updates.length === 0) {
-        throw new Error("No hay campos M/N/O/Q/R/S/T para actualizar");
+        throw new Error("No hay campos M/N/O/R/S/T/U para actualizar");
       }
 
       for (const [col, value] of updates) {
