@@ -5,11 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { AlertCircle, CheckCircle2, Image as ImageIcon, Info } from "lucide-react";
+import { AlertCircle, CheckCircle2, Image as ImageIcon, Info, Search, X } from "lucide-react";
 import { toast } from "sonner";
-import { getEstablishmentKey, loadPhoneContentMap, phoneTextToKg, sheetTextToKg } from "@/lib/phoneContent";
+import { getEstablishmentKey, loadPhoneContentMap, phoneTextToKg } from "@/lib/phoneContent";
 import { PHONE_STATUS_OPTIONS } from "@/lib/statusOptions";
 import { invokeGoogleSheets } from "@/lib/invokeGoogleSheets";
 
@@ -25,24 +24,35 @@ function toNumber(value: string): number | null {
   return Number(m[0].replace(",", "."));
 }
 
-function toKgFromContentText(text: string): number | null {
-  const s = (text || "").toLowerCase().trim();
-  if (!s || s.includes("/")) return null;
-  const qty = toNumber(s);
-  if (qty === null) return null;
-  if (s.includes("kg") || s.includes("kilo")) return qty * (0.08 * 12.5);
-  if (s.includes("bulto")) return qty * (4 * 12.5);
-  if (s.includes("lb")) return qty * (0.0363 * 125);
-  if (s.includes("libra")) return qty * (0.0363 * 12.5);
-  if (s.includes("arroba")) return qty * 12.5;
+type ParseStatus = "ok" | "sin dato" | "formato ambiguo";
+type ParsedQuantity = { kg: number | null; status: ParseStatus };
+
+function toKgByUnit(qty: number, unitText: string): number {
+  const u = (unitText || "").toLowerCase();
+  if (u.includes("kg") || u.includes("kilo")) return qty * (0.08 * 12.5);
+  if (u.includes("bulto")) return qty * (4 * 12.5);
+  if (u.includes("lb")) return qty * (0.0363 * 125);
+  if (u.includes("libra")) return qty * (0.0363 * 12.5);
+  if (u.includes("arroba")) return qty * 12.5;
   return qty * 12.5;
+}
+
+function parseQuantityToKg(text: string, fallbackUnit?: string): ParsedQuantity {
+  const s = (text || "").toLowerCase().trim();
+  const fb = (fallbackUnit || "").toLowerCase().trim();
+  if (!s) return { kg: null, status: "sin dato" };
+  if (s.includes("/")) return { kg: null, status: "formato ambiguo" };
+  const qty = toNumber(s);
+  if (qty === null) return { kg: null, status: "sin dato" };
+  const mergedUnit = `${s} ${fb}`.trim();
+  return { kg: toKgByUnit(qty, mergedUnit), status: "ok" };
 }
 
 function getDbStatus(row: Establishment): "Cumple" | "Falla" | "Sin dato" {
   const raw = (row.dbStatus || "").trim().toLowerCase();
   if (raw === "cumple") return "Cumple";
   if (raw === "falla") return "Falla";
-  const cd = toNumber(row.flourKgStandardText) ?? toKgFromContentText(row.flourTotalText);
+  const cd = toNumber(row.flourKgStandardText) ?? parseQuantityToKg(row.flourTotalText, row.flourUnitBE).kg;
   const cg = toNumber(row.controlCGText);
   if (!cd || cg === null) return "Sin dato";
   return cg / cd < 0.15 ? "Cumple" : "Falla";
@@ -58,10 +68,10 @@ function getDcStatus(row: Establishment): "Cumple" | "Falla" | "Sin dato" {
   return (cg !== null && cg > 19500) || (ch !== null && ch > 19500) ? "Falla" : "Cumple";
 }
 
-function getRule1Status(flourTotalText: string, bakeryQtyText: string, pastryQtyText: string): "Correcta" | "Falla" | "Sin dato" {
-  const m = toNumber(flourTotalText);
-  const n = toNumber(bakeryQtyText);
-  const o = toNumber(pastryQtyText);
+function getRule1Status(flourTotalText: string, bakeryQtyText: string, pastryQtyText: string, fallbackUnit?: string): "Correcta" | "Falla" | "Sin dato" {
+  const m = parseQuantityToKg(flourTotalText, fallbackUnit).kg;
+  const n = parseQuantityToKg(bakeryQtyText, fallbackUnit).kg;
+  const o = parseQuantityToKg(pastryQtyText, fallbackUnit).kg;
   if (m === null || n === null || o === null) return "Sin dato";
   return Math.abs(m - (n + o)) <= 0.001 ? "Correcta" : "Falla";
 }
@@ -82,6 +92,36 @@ function getPhotoCandidates(rawUrl: string): string[] {
 function showValue(value: string): string {
   const v = (value || "").trim();
   return v || "Sin dato";
+}
+
+function normalizeText(s: string): string {
+  return (s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeDateOnly(value: string): string {
+  const s = (value || "").trim();
+  if (!s) return "";
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (m) {
+    const d = Number(m[1]);
+    const mo = Number(m[2]);
+    const y = m[3];
+    if (d >= 1 && d <= 31 && mo >= 1 && mo <= 12) {
+      return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    }
+  }
+  const t = Date.parse(s);
+  if (Number.isNaN(t)) return "";
+  const d = new Date(t);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 type YeastRange = { freshMinPct: number; freshMaxPct: number; dryMinPct: number; dryMaxPct: number };
@@ -122,8 +162,10 @@ function toKgFromYeastText(text: string): number | null {
 }
 
 export default function ContentModule() {
-  const { establishments, updateEstablishment } = useData();
+  const { establishments, updateEstablishment, fetchSheetPreview } = useData();
   const [selectedSurveyors, setSelectedSurveyors] = useState<string[]>([]);
+  const [surveyorPickerOpen, setSurveyorPickerOpen] = useState(false);
+  const [surveyorSearch, setSurveyorSearch] = useState("");
   const [establishmentQuery, setEstablishmentQuery] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -154,12 +196,18 @@ export default function ContentModule() {
     return establishments.filter((r) => {
       if (selectedSurveyors.length > 0 && !selectedSurveyors.includes(getSurveyor(r))) return false;
       if (q && !(r.name || "").toLowerCase().includes(q)) return false;
-      const d = (r.recordDate || "").trim();
+      const d = normalizeDateOnly(r.recordDate);
       if (dateFrom && (!d || d < dateFrom)) return false;
       if (dateTo && (!d || d > dateTo)) return false;
       return true;
     });
   }, [establishments, selectedSurveyors, establishmentQuery, dateFrom, dateTo]);
+
+  const visibleSurveyors = useMemo(() => {
+    const q = normalizeText(surveyorSearch);
+    if (!q) return surveyors;
+    return surveyors.filter((s) => normalizeText(s).includes(q));
+  }, [surveyors, surveyorSearch]);
 
   const grouped = useMemo(() => {
     const bySurveyor = new Map<string, Establishment[]>();
@@ -210,9 +258,9 @@ export default function ContentModule() {
     : "Sin dato";
 
   const phoneCompareStatus = selectedForRules ? (() => {
-    const sheetTotal = sheetTextToKg(selectedForRules.flourTotalText);
-    const sheetBakery = sheetTextToKg(selectedForRules.bakeryQtyText);
-    const sheetPastry = sheetTextToKg(selectedForRules.pastryQtyText);
+    const sheetTotal = parseQuantityToKg(selectedForRules.flourTotalText, selectedForRules.flourUnitBE).kg;
+    const sheetBakery = parseQuantityToKg(selectedForRules.bakeryQtyText, selectedForRules.flourUnitBE).kg;
+    const sheetPastry = parseQuantityToKg(selectedForRules.pastryQtyText, selectedForRules.flourUnitBE).kg;
     const phoneTotal = phoneTextToKg(phoneEntry?.totalValue || "", phoneEntry?.totalUnit || "kg");
     const phoneBakery = phoneTextToKg(phoneEntry?.bakeryValue || "", phoneEntry?.bakeryUnit || "kg");
     const phonePastry = phoneTextToKg(phoneEntry?.pastryValue || "", phoneEntry?.pastryUnit || "kg");
@@ -223,9 +271,12 @@ export default function ContentModule() {
     return ok ? "Coincide" : "No coincide";
   })() : "Sin dato";
 
-  const flourKg = toKgFromContentText(flourTotalText) ?? toNumber(selectedForRules?.flourKgStandardText || "");
-  const bakeryKg = toKgFromContentText(bakeryQtyText);
-  const pastryKg = toKgFromContentText(pastryQtyText);
+  const flourParsed = parseQuantityToKg(flourTotalText, selected?.flourUnitBE);
+  const bakeryParsed = parseQuantityToKg(bakeryQtyText, selected?.flourUnitBE);
+  const pastryParsed = parseQuantityToKg(pastryQtyText, selected?.flourUnitBE);
+  const flourKg = flourParsed.kg ?? toNumber(selectedForRules?.flourKgStandardText || "");
+  const bakeryKg = bakeryParsed.kg;
+  const pastryKg = pastryParsed.kg;
   const productionType: "panaderia" | "pasteleria" | "mixto" = (() => {
     const hasBakery = (bakeryKg ?? 0) > 0;
     const hasPastry = (pastryKg ?? 0) > 0;
@@ -244,6 +295,9 @@ export default function ContentModule() {
   const otherYeastParsed = parseYeastText(otherYeastText);
   const yeastTotalKg = levapanKg + fleischmanKg + levasafKg + otherYeastKg;
   const yeastPctEstimate = flourKg && flourKg > 0 ? (yeastTotalKg / flourKg) * 100 : null;
+  const yeastInRange = yeastPctEstimate === null
+    ? null
+    : yeastPctEstimate >= (yeastRange.freshMinPct * 100) && yeastPctEstimate <= (yeastRange.freshMaxPct * 100);
 
   useEffect(() => {
     setContentStatus(selected?.contentStatus || "");
@@ -288,12 +342,58 @@ export default function ContentModule() {
         locality: row.locality,
       });
       const n = Number(data.rowNumber || 0);
-      if (!Number.isFinite(n) || n < 2) return null;
-      updateEstablishment({ ...row, sheetRowNumber: n }, { skipAutoSync: true });
-      return n;
+      if (Number.isFinite(n) && n >= 2) {
+        updateEstablishment({ ...row, sheetRowNumber: n }, { skipAutoSync: true });
+        return n;
+      }
     } catch {
-      return null;
+      // fallback below
     }
+
+    try {
+      const preview = await fetchSheetPreview();
+      const values = preview.values || [];
+      let bestRow = 0;
+      let bestScore = -1;
+      const tName = normalizeText(row.name);
+      const tAddress = normalizeText(row.address);
+      const tDate = normalizeDateOnly(row.recordDate);
+      const tSurveyor = normalizeText(row.listaNombre);
+      const tLocality = normalizeText(row.locality);
+
+      for (let i = 0; i < values.length; i += 1) {
+        const r = values[i] || [];
+        const nName = normalizeText(String(r[37] || ""));
+        if (!nName) continue;
+        const nameMatch = nName === tName || nName.includes(tName) || tName.includes(nName);
+        if (!nameMatch) continue;
+
+        const nAddress = normalizeText(String(r[38] || ""));
+        const nSurveyor = normalizeText(String(r[3] || ""));
+        const nLocality = normalizeText(String(r[35] || ""));
+        const nDate = normalizeDateOnly(String(r[0] || ""));
+
+        let score = 10;
+        if (tDate && nDate === tDate) score += 8;
+        if (tAddress && (nAddress === tAddress || nAddress.includes(tAddress) || tAddress.includes(nAddress))) score += 6;
+        if (tSurveyor && nSurveyor === tSurveyor) score += 4;
+        if (tLocality && nLocality === tLocality) score += 3;
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestRow = i + 1;
+        }
+      }
+
+      if (bestRow >= 2) {
+        updateEstablishment({ ...row, sheetRowNumber: bestRow }, { skipAutoSync: true });
+        return bestRow;
+      }
+    } catch {
+      // ignore
+    }
+
+    return null;
   };
 
   const handleSaveContentStatus = async () => {
@@ -363,37 +463,29 @@ export default function ContentModule() {
       <div className="grid lg:grid-cols-4 gap-3 reveal-up reveal-up-delay-1">
         <div className="space-y-2">
           <Label>Filtrar encuestador</Label>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button type="button" variant="outline" className="h-10 w-full justify-start font-normal">
-                {selectedSurveyors.length === 0
-                  ? "Todos"
-                  : selectedSurveyors.length === 1
-                    ? selectedSurveyors[0]
-                    : `${selectedSurveyors.length} seleccionados`}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-[320px] max-h-72 overflow-y-auto">
-              {surveyors.map((s) => (
-                <DropdownMenuCheckboxItem
-                  key={s}
-                  checked={selectedSurveyors.includes(s)}
-                  onCheckedChange={(checked) => {
-                    setSelectedSurveyors((prev) => (
-                      checked ? [...prev, s] : prev.filter((x) => x !== s)
-                    ));
-                  }}
-                >
+          <Button type="button" variant="outline" className="h-10 w-full justify-between font-normal" onClick={() => setSurveyorPickerOpen(true)}>
+            <span className="truncate">
+              {selectedSurveyors.length === 0
+                ? "Todos"
+                : selectedSurveyors.length === 1
+                  ? selectedSurveyors[0]
+                  : `${selectedSurveyors.length} encuestadores`}
+            </span>
+            <Search className="w-4 h-4 text-muted-foreground" />
+          </Button>
+          {selectedSurveyors.length > 0 ? (
+            <div className="flex flex-wrap gap-1">
+              {selectedSurveyors.slice(0, 3).map((s) => (
+                <span key={s} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted text-xs">
                   {s}
-                </DropdownMenuCheckboxItem>
+                  <button type="button" onClick={() => setSelectedSurveyors((prev) => prev.filter((x) => x !== s))}>
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
               ))}
-              {selectedSurveyors.length > 0 ? (
-                <Button type="button" variant="ghost" size="sm" className="w-full mt-1" onClick={() => setSelectedSurveyors([])}>
-                  Limpiar selección
-                </Button>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
+              {selectedSurveyors.length > 3 ? <span className="text-xs text-muted-foreground">+{selectedSurveyors.length - 3}</span> : null}
+            </div>
+          ) : null}
         </div>
         <div className="space-y-2">
           <Label>Búsqueda establecimiento</Label>
@@ -413,6 +505,7 @@ export default function ContentModule() {
           <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="h-10" />
         </div>
       </div>
+      <p className="text-xs text-muted-foreground -mt-2">El filtro de fechas usa la columna A (Respuesta iniciada), tomando solo día/mes/año.</p>
 
       <div className="space-y-3">
         {grouped.map((g) => (
@@ -448,6 +541,50 @@ export default function ContentModule() {
         ) : null}
       </div>
 
+      <Dialog open={surveyorPickerOpen} onOpenChange={setSurveyorPickerOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Seleccionar encuestadores</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input
+              value={surveyorSearch}
+              onChange={(e) => setSurveyorSearch(e.target.value)}
+              placeholder="Buscar encuestador..."
+              className="h-10"
+            />
+            <div className="max-h-72 overflow-y-auto rounded-md border p-2 space-y-1">
+              {visibleSurveyors.map((s) => {
+                const checked = selectedSurveyors.includes(s);
+                return (
+                  <button
+                    key={s}
+                    type="button"
+                    className={`w-full text-left px-2 py-1.5 rounded text-sm ${checked ? "bg-primary/10 text-primary" : "hover:bg-muted"}`}
+                    onClick={() => {
+                      setSelectedSurveyors((prev) => checked ? prev.filter((x) => x !== s) : [...prev, s]);
+                    }}
+                  >
+                    {checked ? "✓ " : ""}{s}
+                  </button>
+                );
+              })}
+              {visibleSurveyors.length === 0 ? (
+                <p className="text-sm text-muted-foreground p-2">Sin resultados.</p>
+              ) : null}
+            </div>
+            <div className="flex items-center justify-between">
+              <Button type="button" variant="outline" size="sm" onClick={() => setSelectedSurveyors([])}>
+                Limpiar
+              </Button>
+              <Button type="button" size="sm" onClick={() => setSurveyorPickerOpen(false)}>
+                Aplicar
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={!!selected} onOpenChange={(open) => { if (!open) setSelectedId(null); }}>
         <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
           {!selected || !selectedForRules ? null : (
@@ -478,21 +615,28 @@ export default function ContentModule() {
 
               <div className="rounded-lg border p-3 space-y-3">
                 <p className="text-xs text-muted-foreground">Cantidades editables (M, N, O, R, S, T, U)</p>
+                <p className="text-[11px] text-muted-foreground">Unidad declarada BE: {showValue(selected.flourUnitBE || "")}</p>
                 <div className="grid sm:grid-cols-3 gap-3">
                   <div className="space-y-1">
                     <Label className="text-xs text-muted-foreground">Total de harina que consume</Label>
                     <Input value={flourTotalText} onChange={(e) => setFlourTotalText(e.target.value)} className="h-9" />
-                    <p className="text-[11px] text-muted-foreground">KG estimados: {flourKg === null ? "Sin dato" : flourKg.toFixed(2)}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      KG estimados: {flourKg === null ? "Sin dato" : flourKg.toFixed(2)} · Estado: {flourParsed.status}
+                    </p>
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs text-muted-foreground">Elaborar panadería</Label>
                     <Input value={bakeryQtyText} onChange={(e) => setBakeryQtyText(e.target.value)} className="h-9" />
-                    <p className="text-[11px] text-muted-foreground">KG estimados: {bakeryKg === null ? "Sin dato" : bakeryKg.toFixed(2)}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      KG estimados: {bakeryKg === null ? "Sin dato" : bakeryKg.toFixed(2)} · Estado: {bakeryParsed.status}
+                    </p>
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs text-muted-foreground">Elaborar pastelería</Label>
                     <Input value={pastryQtyText} onChange={(e) => setPastryQtyText(e.target.value)} className="h-9" />
-                    <p className="text-[11px] text-muted-foreground">KG estimados: {pastryKg === null ? "Sin dato" : pastryKg.toFixed(2)}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      KG estimados: {pastryKg === null ? "Sin dato" : pastryKg.toFixed(2)} · Estado: {pastryParsed.status}
+                    </p>
                   </div>
                 </div>
                 <div className="grid sm:grid-cols-2 gap-3">
@@ -548,8 +692,8 @@ export default function ContentModule() {
               <div className="grid sm:grid-cols-2 gap-3">
                 <div className="rounded-lg border p-3">
                   <p className="text-xs text-muted-foreground">Total Cant Correctas</p>
-                  <p className={`text-sm font-medium ${getRule1Status(flourTotalText, bakeryQtyText, pastryQtyText) === "Falla" ? "text-destructive" : ""}`}>
-                    {getRule1Status(flourTotalText, bakeryQtyText, pastryQtyText)}
+                  <p className={`text-sm font-medium ${getRule1Status(flourTotalText, bakeryQtyText, pastryQtyText, selected.flourUnitBE) === "Falla" ? "text-destructive" : ""}`}>
+                    {getRule1Status(flourTotalText, bakeryQtyText, pastryQtyText, selected.flourUnitBE)}
                   </p>
                 </div>
                 <div className="rounded-lg border p-3">
@@ -617,9 +761,15 @@ export default function ContentModule() {
               <p>Tipo detectado: <span className="font-medium capitalize">{productionType === "mixto" ? "Panadería + pastelería" : productionType}</span></p>
               <p>Harina total estimada: <span className="font-medium">{flourKg === null ? "Sin dato" : `${flourKg.toFixed(2)} kg`}</span></p>
               <p>
-                Levadura total estimada (Q+R+S+T):{" "}
+                Levadura total estimada (R+S+T+U):{" "}
                 <span className="font-medium">{yeastTotalKg.toFixed(2)} kg</span>
                 {yeastPctEstimate === null ? "" : ` · ${yeastPctEstimate.toFixed(2)}% sobre harina`}
+              </p>
+              <p className="text-xs mt-1">
+                Estado rango:{" "}
+                <span className={yeastInRange === null ? "" : yeastInRange ? "text-emerald-600 font-medium" : "text-destructive font-medium"}>
+                  {yeastInRange === null ? "Sin dato" : yeastInRange ? "Dentro de rango" : "Fuera de rango"}
+                </span>
               </p>
               <p className="text-xs text-muted-foreground mt-1">
                 Rango normal detectado: {(yeastRange.freshMinPct * 100).toFixed(1)}% - {(yeastRange.freshMaxPct * 100).toFixed(1)}% (fresca)

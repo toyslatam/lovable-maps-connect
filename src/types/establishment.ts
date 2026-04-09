@@ -28,6 +28,8 @@ export interface Establishment {
   bakeryQtyText: string;
   /** Elaborar pastelería (columna O, texto libre). */
   pastryQtyText: string;
+  /** Unidad declarada para harina (columna BE). */
+  flourUnitBE?: string;
   /** Levadura marca Levapan (columna Q, texto libre). */
   levapanText?: string;
   /** Levadura marca Fleischman (columna R, texto libre). */

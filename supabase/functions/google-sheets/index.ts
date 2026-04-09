@@ -30,6 +30,7 @@ const COL_LNG = 51; // AZ
 const COL_CITY = 60; // BI
 const COL_CONTENT_STATUS = 65; // BN
 const COL_PHONE_STATUS = 70; // BS
+const COL_FLOUR_UNIT_BE = 56; // BE
 const COL_FLOUR_KG_STANDARD = 81; // CD
 const COL_CONTROL_CG = 84; // CG
 const COL_CONTROL_CH = 85; // CH
@@ -53,6 +54,7 @@ interface SheetRow {
   flourTotalText: string;
   bakeryQtyText: string;
   pastryQtyText: string;
+  flourUnitBE?: string;
   levapanText?: string;
   fleischmanText?: string;
   levasafText?: string;
@@ -102,6 +104,16 @@ function parseDateOnly(cell: string): string {
 
 function cell(r: string[], i: number): string {
   return (r[i] ?? "").trim();
+}
+
+function normalizeText(s: string): string {
+  return (s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function isProbablyHeaderRow(r: string[]): boolean {
@@ -315,6 +327,7 @@ serve(async (req) => {
           flourTotalText: cell(r, COL_FLOUR_TOTAL),
           bakeryQtyText: cell(r, COL_BAKERY_QTY),
           pastryQtyText: cell(r, COL_PASTRY_QTY),
+          flourUnitBE: cell(r, COL_FLOUR_UNIT_BE),
           levapanText: cell(r, COL_LEVAPAN),
           fleischmanText: cell(r, COL_FLEISCHMAN),
           levasafText: cell(r, COL_LEVASAF),
@@ -481,15 +494,20 @@ serve(async (req) => {
     }
 
     if (action === "findRow") {
-      const targetName = typeof parsedBody.name === "string" ? parsedBody.name.trim().toLowerCase() : "";
-      const targetAddress = typeof parsedBody.address === "string" ? parsedBody.address.trim().toLowerCase() : "";
+      const targetName = typeof parsedBody.name === "string" ? parsedBody.name.trim() : "";
+      const targetAddress = typeof parsedBody.address === "string" ? parsedBody.address.trim() : "";
       const targetDate = typeof parsedBody.recordDate === "string" ? parsedBody.recordDate.trim() : "";
-      const targetSurveyor = typeof parsedBody.listaNombre === "string" ? parsedBody.listaNombre.trim().toLowerCase() : "";
-      const targetLocality = typeof parsedBody.locality === "string" ? parsedBody.locality.trim().toLowerCase() : "";
+      const targetSurveyor = typeof parsedBody.listaNombre === "string" ? parsedBody.listaNombre.trim() : "";
+      const targetLocality = typeof parsedBody.locality === "string" ? parsedBody.locality.trim() : "";
 
       if (!targetName) {
         throw new Error("findRow requiere al menos name");
       }
+
+      const nTargetName = normalizeText(targetName);
+      const nTargetAddress = normalizeText(targetAddress);
+      const nTargetSurveyor = normalizeText(targetSurveyor);
+      const nTargetLocality = normalizeText(targetLocality);
 
       const range = encodeURIComponent(tabRange(sheetTab || undefined, "A:DC"));
       const res = await fetch(`${baseUrl}/values/${range}`, {
@@ -501,27 +519,40 @@ serve(async (req) => {
       }
 
       const rows: string[][] = json.values || [];
+      let bestRow = 0;
+      let bestScore = -1;
+
       for (let i = 0; i < rows.length; i += 1) {
         const r = rows[i];
         if (isProbablyHeaderRow(r)) continue;
-        const rowName = cell(r, COL_NAME).toLowerCase();
-        if (rowName !== targetName) continue;
+
+        const rowNameRaw = cell(r, COL_NAME);
+        const nRowName = normalizeText(rowNameRaw);
+        if (!nRowName) continue;
+        const nameMatch = nRowName === nTargetName || nRowName.includes(nTargetName) || nTargetName.includes(nRowName);
+        if (!nameMatch) continue;
 
         const rowDate = parseDateOnly(cell(r, COL_DATE));
-        const rowAddress = cell(r, COL_ADDRESS).toLowerCase();
-        const rowSurveyor = cell(r, COL_LISTA_NOMBRE).toLowerCase();
-        const rowLocality = cell(r, COL_LOCALITY).toLowerCase();
+        const nRowAddress = normalizeText(cell(r, COL_ADDRESS));
+        const nRowSurveyor = normalizeText(cell(r, COL_LISTA_NOMBRE));
+        const nRowLocality = normalizeText(cell(r, COL_LOCALITY));
 
-        const dateMatch = !targetDate || rowDate === targetDate;
-        const addressMatch = !targetAddress || rowAddress === targetAddress;
-        const surveyorMatch = !targetSurveyor || rowSurveyor === targetSurveyor;
-        const localityMatch = !targetLocality || rowLocality === targetLocality;
+        let score = 10; // base by name
+        if (targetDate && rowDate === targetDate) score += 8;
+        if (nTargetAddress && (nRowAddress === nTargetAddress || nRowAddress.includes(nTargetAddress) || nTargetAddress.includes(nRowAddress))) score += 6;
+        if (nTargetSurveyor && nRowSurveyor === nTargetSurveyor) score += 4;
+        if (nTargetLocality && nRowLocality === nTargetLocality) score += 3;
 
-        if (dateMatch && addressMatch && surveyorMatch && localityMatch) {
-          return new Response(JSON.stringify({ success: true, rowNumber: i + 1 }), {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+        if (score > bestScore) {
+          bestScore = score;
+          bestRow = i + 1;
         }
+      }
+
+      if (bestRow >= 2) {
+        return new Response(JSON.stringify({ success: true, rowNumber: bestRow }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       return new Response(JSON.stringify({ success: false, error: "No se encontró fila coincidente" }), {
