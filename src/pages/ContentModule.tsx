@@ -162,7 +162,7 @@ function toKgFromYeastText(text: string): number | null {
 }
 
 export default function ContentModule() {
-  const { establishments, updateEstablishment, fetchSheetPreview } = useData();
+  const { establishments, updateEstablishment, fetchSheetPreview, connectedSheetId, connectedSheetTab } = useData();
   const [selectedSurveyors, setSelectedSurveyors] = useState<string[]>([]);
   const [surveyorPickerOpen, setSurveyorPickerOpen] = useState(false);
   const [surveyorSearch, setSurveyorSearch] = useState("");
@@ -335,6 +335,8 @@ export default function ContentModule() {
     try {
       const data = await invokeGoogleSheets({
         action: "findRow",
+        sheetId: connectedSheetId,
+        sheetTab: connectedSheetTab || undefined,
         name: row.name,
         address: row.address,
         recordDate: row.recordDate,
@@ -398,14 +400,19 @@ export default function ContentModule() {
 
   const handleSaveContentStatus = async () => {
     if (!selected) return;
-    const rowNumber = await resolveRowNumber(selected);
-    if (!rowNumber) return toast.error("No se encontró la fila en Sheets para este registro");
     const updated: Establishment = { ...selected, contentStatus: contentStatus.trim() };
     updateEstablishment(updated, { skipAutoSync: true });
+    const rowNumber = await resolveRowNumber(updated);
+    if (!rowNumber) {
+      toast.error("Se guardó localmente, pero no se pudo sincronizar con Sheets (fila no encontrada)");
+      return;
+    }
     try {
       setSavingContentStatus(true);
       await invokeGoogleSheets({
         action: "updateStatus",
+        sheetId: connectedSheetId,
+        sheetTab: connectedSheetTab || undefined,
         rowNumber,
         contentStatus: updated.contentStatus,
       });
@@ -419,8 +426,6 @@ export default function ContentModule() {
 
   const handleSaveContentFields = async () => {
     if (!selected) return;
-    const rowNumber = await resolveRowNumber(selected);
-    if (!rowNumber) return toast.error("No se encontró la fila en Sheets para este registro");
     const updated: Establishment = {
       ...selected,
       flourTotalText: flourTotalText.trim(),
@@ -432,10 +437,17 @@ export default function ContentModule() {
       otherYeastText: otherYeastText.trim(),
     };
     updateEstablishment(updated, { skipAutoSync: true });
+    const rowNumber = await resolveRowNumber(updated);
+    if (!rowNumber) {
+      toast.error("Se guardó localmente, pero no se pudo sincronizar con Sheets (fila no encontrada)");
+      return;
+    }
     try {
       setSavingContentFields(true);
       await invokeGoogleSheets({
         action: "updateContentFields",
+        sheetId: connectedSheetId,
+        sheetTab: connectedSheetTab || undefined,
         rowNumber,
         flourTotalText: updated.flourTotalText,
         bakeryQtyText: updated.bakeryQtyText,
