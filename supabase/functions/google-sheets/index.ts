@@ -13,7 +13,7 @@ const COL_DATE = 0;
 const COL_LISTA_NOMBRE = 3; // D (desplegable)
 const COL_PHONE = 5;
 const COL_CONTACT = 6;
-const COL_NOTES = 7;
+const COL_BUSINESS_TYPE = 7; // H — tipo de negocio / texto asociado
 const COL_FLOUR_TOTAL = 12; // M
 const COL_BAKERY_QTY = 13; // N
 const COL_PASTRY_QTY = 14; // O
@@ -93,6 +93,7 @@ interface SheetRow {
   phone: string;
   contactName: string;
   notes: string;
+  businessTypeText?: string;
 }
 
 function pad2(n: number): string {
@@ -383,7 +384,8 @@ serve(async (req) => {
           longitude: parseFloat(cell(r, COL_LNG)) || 0,
           phone: cell(r, COL_PHONE),
           contactName: cell(r, COL_CONTACT),
-          notes: cell(r, COL_NOTES),
+          notes: cell(r, COL_BUSINESS_TYPE),
+          businessTypeText: cell(r, COL_BUSINESS_TYPE),
         }));
 
       return new Response(JSON.stringify({ success: true, data: establishments }), {
@@ -416,7 +418,7 @@ serve(async (req) => {
         ["D1:D1", "Encuestador"],
         ["F1:F1", "Teléfono"],
         ["G1:G1", "Contacto"],
-        ["H1:H1", "Notas"],
+        ["H1:H1", "Tipo de negocio"],
         ["AJ1:AJ1", "Localidad"],
         ["AL1:AL1", "Nombre establecimiento"],
         ["AM1:AM1", "Dirección"],
@@ -609,9 +611,19 @@ serve(async (req) => {
       if (typeof parsedBody.fleischmanText === "string") updates.push(["S", parsedBody.fleischmanText]);
       if (typeof parsedBody.levasafText === "string") updates.push(["T", parsedBody.levasafText]);
       if (typeof parsedBody.otherYeastText === "string") updates.push(["U", parsedBody.otherYeastText]);
+      if (typeof parsedBody.yeastAngelText === "string") updates.push(["X", parsedBody.yeastAngelText]);
+      if (typeof parsedBody.yeastPanificadorText === "string") updates.push(["Y", parsedBody.yeastPanificadorText]);
+      if (typeof parsedBody.yeastFermipanText === "string") updates.push(["Z", parsedBody.yeastFermipanText]);
+      if (typeof parsedBody.yeastGloripanText === "string") updates.push(["AA", parsedBody.yeastGloripanText]);
+      if (typeof parsedBody.yeastInstafermText === "string") updates.push(["AB", parsedBody.yeastInstafermText]);
+      if (typeof parsedBody.yeastInstantSuccText === "string") updates.push(["AC", parsedBody.yeastInstantSuccText]);
+      if (typeof parsedBody.yeastMauripanText === "string") updates.push(["AD", parsedBody.yeastMauripanText]);
+      if (typeof parsedBody.yeastSafInstantText === "string") updates.push(["AE", parsedBody.yeastSafInstantText]);
+      if (typeof parsedBody.yeastSantillanaText === "string") updates.push(["AF", parsedBody.yeastSantillanaText]);
+      if (typeof parsedBody.yeastOtherDryText === "string") updates.push(["AG", parsedBody.yeastOtherDryText]);
 
       if (updates.length === 0) {
-        throw new Error("No hay campos M/N/O/R/S/T/U para actualizar");
+        throw new Error("No hay campos de contenido para actualizar");
       }
 
       for (const [col, value] of updates) {

@@ -79,4 +79,6 @@ export interface Establishment {
   phone: string;
   contactName: string;
   notes: string;
+  /** Tipo de negocio u otro texto de columna H (misma celda que notas si aplica). */
+  businessTypeText?: string;
 }

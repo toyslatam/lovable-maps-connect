@@ -195,6 +195,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
           phone: row.phone ?? "",
           contactName: row.contactName ?? "",
           notes: row.notes ?? "",
+          businessTypeText: row.businessTypeText ?? row.notes ?? "",
           id: crypto.randomUUID(),
         })
       );
@@ -282,6 +283,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         phone,
         contactName,
         notes,
+        businessTypeText,
       }) => ({
         sheetRowNumber,
         recordDate,
@@ -324,6 +326,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         phone,
         contactName,
         notes,
+        businessTypeText,
       }));
 
       const writeBody: Record<string, unknown> = {

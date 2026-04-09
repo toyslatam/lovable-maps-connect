@@ -1,16 +1,25 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { ContentAdvancedFilters } from "@/components/content/ContentAdvancedFilters";
+import { ContentFilterBar } from "@/components/content/ContentFilterBar";
+import { loadContentFilters, saveContentFilters } from "@/lib/contentModuleFilterStorage";
 import { useData } from "@/context/DataContext";
 import { Establishment } from "@/types/establishment";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { AlertCircle, CheckCircle2, Image as ImageIcon, Info, Search, SlidersHorizontal, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 import { getEstablishmentKey, loadPhoneContentMap, phoneTextToKg } from "@/lib/phoneContent";
 import { PHONE_STATUS_OPTIONS } from "@/lib/statusOptions";
 import { invokeGoogleSheets } from "@/lib/invokeGoogleSheets";
+import { buildFlourSheetCell, flourUnitToKgFactor, parseFlourQuantity, parseInitialNumAndUnit } from "@/lib/contentConversions";
+import { HeaderContenido, inferBusinessKind } from "@/components/content/HeaderContenido";
+import { CantidadesCard } from "@/components/content/CantidadesCard";
+import type { LineStatus } from "@/components/content/CantidadesCard";
+import { LevadurasGrid } from "@/components/content/LevadurasGrid";
+import { GlobalOutcomeBadge, ValidationPanel } from "@/components/content/ValidationPanel";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const CONTENT_STATUS_OPTIONS = PHONE_STATUS_OPTIONS;
 
@@ -72,7 +81,9 @@ function getYeastQualityStatus(args: {
   flourKg: number | null;
   yeastTotalKg: number;
   productionType: "panaderia" | "pasteleria" | "mixto";
+  businessTypeText?: string;
 }): "Cumple" | "No cumple" | "No aplica" | "Sin dato" {
+  if (inferBusinessKind(args.businessTypeText || "") === "pasteleria") return "No aplica";
   if (args.productionType === "pasteleria") return "No aplica";
   if (args.flourKg === null || args.flourKg <= 0) return "Sin dato";
   const ratio = args.yeastTotalKg / args.flourKg;
@@ -142,13 +153,6 @@ function normalizeDateOnly(value: string): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-type YeastRange = { freshMinPct: number; freshMaxPct: number; dryMinPct: number; dryMaxPct: number };
-const YEAST_RANGES: Record<"panaderia" | "pasteleria" | "mixto", YeastRange> = {
-  panaderia: { freshMinPct: 0.01, freshMaxPct: 0.03, dryMinPct: 0.003, dryMaxPct: 0.01 },
-  pasteleria: { freshMinPct: 0.01, freshMaxPct: 0.025, dryMinPct: 0.003, dryMaxPct: 0.009 },
-  mixto: { freshMinPct: 0.015, freshMaxPct: 0.035, dryMinPct: 0.005, dryMaxPct: 0.012 },
-};
-
 function parseYeastText(text: string): { quantity: number | null; price: number | null; unitHint: string } {
   const raw = (text || "").toLowerCase();
   const qMatch = raw.match(/cantidad\s*semanal\s*:\s*([0-9]+(?:[.,][0-9]+)?)/i);
@@ -169,6 +173,109 @@ function parseYeastText(text: string): { quantity: number | null; price: number 
   };
 }
 
+function lineStatusForCard(
+  which: "flour" | "bakery" | "pastry",
+  parseStatus: ParseStatus,
+  rule1: ReturnType<typeof getRule1Status>,
+): LineStatus {
+  if (parseStatus === "formato ambiguo") return "warn";
+  if (parseStatus === "sin dato") return "warn";
+  if (rule1 === "Sin dato") return "warn";
+  if (rule1 === "Correcta") return "ok";
+  if (which === "flour") return "error";
+  return "warn";
+}
+
+function computeGlobalOutcome(args: {
+  rule1: ReturnType<typeof getRule1Status>;
+  yeastQ: ReturnType<typeof getYeastQualityStatus>;
+  yeastP: ReturnType<typeof getYeastPriceStatus>;
+  db: ReturnType<typeof getDbStatus>;
+  dc: ReturnType<typeof getDcStatus>;
+  phoneCmp: string;
+}): "cumple" | "revisar" | "no_cumple" {
+  if (args.yeastQ === "No cumple" || args.yeastP === "Falla" || args.rule1 === "Falla" || args.db === "Falla" || args.dc === "Falla") {
+    return "no_cumple";
+  }
+  if (args.phoneCmp === "No coincide") return "revisar";
+  if (args.yeastQ === "Sin dato" || args.rule1 === "Sin dato" || args.db === "Sin dato" || args.dc === "Sin dato" || args.yeastP === "Sin dato") {
+    return "revisar";
+  }
+  if (args.yeastQ === "No aplica") {
+    if (args.rule1 === "Correcta" && args.yeastP === "Cumple" && args.db === "Cumple" && args.dc === "Cumple") return "cumple";
+    return "revisar";
+  }
+  if (args.rule1 === "Correcta" && args.yeastQ === "Cumple" && args.yeastP === "Cumple" && args.db === "Cumple" && args.dc === "Cumple") {
+    return "cumple";
+  }
+  return "revisar";
+}
+
+function stableContentKey(e: Establishment): string {
+  return JSON.stringify({
+    flourTotalText: e.flourTotalText,
+    bakeryQtyText: e.bakeryQtyText,
+    pastryQtyText: e.pastryQtyText,
+    contentStatus: e.contentStatus,
+    levapanText: e.levapanText,
+    fleischmanText: e.fleischmanText,
+    levasafText: e.levasafText,
+    otherYeastText: e.otherYeastText,
+    yeastAngelText: e.yeastAngelText,
+    yeastPanificadorText: e.yeastPanificadorText,
+    yeastFermipanText: e.yeastFermipanText,
+    yeastGloripanText: e.yeastGloripanText,
+    yeastInstafermText: e.yeastInstafermText,
+    yeastInstantSuccText: e.yeastInstantSuccText,
+    yeastMauripanText: e.yeastMauripanText,
+    yeastSafInstantText: e.yeastSafInstantText,
+    yeastSantillanaText: e.yeastSantillanaText,
+    yeastOtherDryText: e.yeastOtherDryText,
+  });
+}
+
+/** Solo cantidades + levaduras (sincroniza con `updateContentFields`). */
+function stableQtyYeastKey(patch: {
+  flourTotalText: string;
+  bakeryQtyText: string;
+  pastryQtyText: string;
+  levapanText: string;
+  fleischmanText: string;
+  levasafText: string;
+  otherYeastText: string;
+  yeastAngelText: string;
+  yeastPanificadorText: string;
+  yeastFermipanText: string;
+  yeastGloripanText: string;
+  yeastInstafermText: string;
+  yeastInstantSuccText: string;
+  yeastMauripanText: string;
+  yeastSafInstantText: string;
+  yeastSantillanaText: string;
+  yeastOtherDryText: string;
+}): string {
+  const t = (s: string) => (s || "").trim();
+  return JSON.stringify({
+    flourTotalText: t(patch.flourTotalText),
+    bakeryQtyText: t(patch.bakeryQtyText),
+    pastryQtyText: t(patch.pastryQtyText),
+    levapanText: t(patch.levapanText),
+    fleischmanText: t(patch.fleischmanText),
+    levasafText: t(patch.levasafText),
+    otherYeastText: t(patch.otherYeastText),
+    yeastAngelText: t(patch.yeastAngelText),
+    yeastPanificadorText: t(patch.yeastPanificadorText),
+    yeastFermipanText: t(patch.yeastFermipanText),
+    yeastGloripanText: t(patch.yeastGloripanText),
+    yeastInstafermText: t(patch.yeastInstafermText),
+    yeastInstantSuccText: t(patch.yeastInstantSuccText),
+    yeastMauripanText: t(patch.yeastMauripanText),
+    yeastSafInstantText: t(patch.yeastSafInstantText),
+    yeastSantillanaText: t(patch.yeastSantillanaText),
+    yeastOtherDryText: t(patch.yeastOtherDryText),
+  });
+}
+
 function toKgFromYeastText(text: string): number | null {
   const parsed = parseYeastText(text);
   const n = parsed.quantity;
@@ -181,20 +288,33 @@ function toKgFromYeastText(text: string): number | null {
 
 export default function ContentModule() {
   const { establishments, updateEstablishment, fetchSheetPreview, connectedSheetId, connectedSheetTab } = useData();
-  const [selectedSurveyors, setSelectedSurveyors] = useState<string[]>([]);
-  const [surveyorPickerOpen, setSurveyorPickerOpen] = useState(false);
-  const [surveyorSearch, setSurveyorSearch] = useState("");
-  const [establishmentQuery, setEstablishmentQuery] = useState("");
-  const [brStateFilter, setBrStateFilter] = useState("__all__");
-  const [phoneStateFilter, setPhoneStateFilter] = useState("__all__");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [selectedSurveyors, setSelectedSurveyors] = useState<string[]>(
+    () => loadContentFilters()?.selectedSurveyors ?? [],
+  );
+  const [establishmentInput, setEstablishmentInput] = useState(
+    () => loadContentFilters()?.establishmentSearch ?? "",
+  );
+  const debouncedEstablishment = useDebouncedValue(establishmentInput, 280);
+  const [brStateFilter, setBrStateFilter] = useState(
+    () => loadContentFilters()?.brStateFilter ?? "__all__",
+  );
+  const [phoneStateFilter, setPhoneStateFilter] = useState(
+    () => loadContentFilters()?.phoneStateFilter ?? "__all__",
+  );
+  const [dateFrom, setDateFrom] = useState(() => loadContentFilters()?.dateFrom ?? "");
+  const [dateTo, setDateTo] = useState(() => loadContentFilters()?.dateTo ?? "");
+  const [advSection, setAdvSection] = useState<"" | "advanced">(
+    () => (loadContentFilters()?.advancedAccordionOpen ? "advanced" : ""),
+  );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [photoIdx, setPhotoIdx] = useState(0);
   const [contentStatus, setContentStatus] = useState("");
-  const [flourTotalText, setFlourTotalText] = useState("");
-  const [bakeryQtyText, setBakeryQtyText] = useState("");
-  const [pastryQtyText, setPastryQtyText] = useState("");
+  const [flourNum, setFlourNum] = useState("");
+  const [flourUnit, setFlourUnit] = useState("kg");
+  const [bakeryNum, setBakeryNum] = useState("");
+  const [bakeryUnit, setBakeryUnit] = useState("kg");
+  const [pastryNum, setPastryNum] = useState("");
+  const [pastryUnit, setPastryUnit] = useState("kg");
   const [levapanText, setLevapanText] = useState("");
   const [fleischmanText, setFleischmanText] = useState("");
   const [levasafText, setLevasafText] = useState("");
@@ -210,10 +330,15 @@ export default function ContentModule() {
   const [yeastSantillanaText, setYeastSantillanaText] = useState("");
   const [yeastOtherDryText, setYeastOtherDryText] = useState("");
   const [savingContentStatus, setSavingContentStatus] = useState(false);
-  const [savingContentFields, setSavingContentFields] = useState(false);
-  const [kgInfoOpen, setKgInfoOpen] = useState(false);
+  const [sheetSyncState, setSheetSyncState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const lastQtyYeastSavedRef = useRef<string>("");
+  const autosaveRowIdRef = useRef<string | null>(null);
   const [photoZoomOpen, setPhotoZoomOpen] = useState(false);
   const [phoneMap, setPhoneMap] = useState(() => loadPhoneContentMap());
+
+  const flourTotalText = useMemo(() => buildFlourSheetCell(flourNum, flourUnit), [flourNum, flourUnit]);
+  const bakeryQtyText = useMemo(() => buildFlourSheetCell(bakeryNum, bakeryUnit), [bakeryNum, bakeryUnit]);
+  const pastryQtyText = useMemo(() => buildFlourSheetCell(pastryNum, pastryUnit), [pastryNum, pastryUnit]);
 
   const surveyors = useMemo(() => {
     const set = new Set<string>();
@@ -263,7 +388,7 @@ export default function ContentModule() {
   }, [establishments]);
 
   const filteredRows = useMemo(() => {
-    const q = establishmentQuery.trim().toLowerCase();
+    const q = debouncedEstablishment.trim().toLowerCase();
     return establishments.filter((r) => {
       if (selectedSurveyors.length > 0 && !selectedSurveyors.includes(getSurveyor(r))) return false;
       if (q && !(r.name || "").toLowerCase().includes(q)) return false;
@@ -290,13 +415,37 @@ export default function ContentModule() {
       if (dateTo && (!d || d > dateTo)) return false;
       return true;
     });
-  }, [establishments, selectedSurveyors, establishmentQuery, brStateFilter, phoneStateFilter, dateFrom, dateTo]);
+  }, [establishments, selectedSurveyors, debouncedEstablishment, brStateFilter, phoneStateFilter, dateFrom, dateTo]);
 
-  const visibleSurveyors = useMemo(() => {
-    const q = normalizeText(surveyorSearch);
-    if (!q) return surveyors;
-    return surveyors.filter((s) => normalizeText(s).includes(q));
-  }, [surveyors, surveyorSearch]);
+  const activeFilterCount = useMemo(() => {
+    let n = 0;
+    if (selectedSurveyors.length > 0) n += 1;
+    if (establishmentInput.trim()) n += 1;
+    if (dateFrom) n += 1;
+    if (dateTo) n += 1;
+    if (brStateFilter !== "__all__") n += 1;
+    if (phoneStateFilter !== "__all__") n += 1;
+    return n;
+  }, [selectedSurveyors.length, establishmentInput, dateFrom, dateTo, brStateFilter, phoneStateFilter]);
+
+  const secondaryFiltersActiveCount = useMemo(() => {
+    let n = 0;
+    if (brStateFilter !== "__all__") n += 1;
+    if (phoneStateFilter !== "__all__") n += 1;
+    return n;
+  }, [brStateFilter, phoneStateFilter]);
+
+  useEffect(() => {
+    saveContentFilters({
+      selectedSurveyors,
+      establishmentSearch: establishmentInput,
+      dateFrom,
+      dateTo,
+      brStateFilter,
+      phoneStateFilter,
+      advancedAccordionOpen: advSection === "advanced",
+    });
+  }, [selectedSurveyors, establishmentInput, dateFrom, dateTo, brStateFilter, phoneStateFilter, advSection]);
 
   const grouped = useMemo(() => {
     const bySurveyor = new Map<string, Establishment[]>();
@@ -342,10 +491,6 @@ export default function ContentModule() {
     contentStatus,
   } : null;
 
-  const combinedStatus = selectedForRules
-    ? (getDbStatus(selectedForRules) === "Cumple" && getDcStatus(selectedForRules) === "Cumple" ? "Cumple" : "Falla")
-    : "Sin dato";
-
   const phoneCompareStatus = selectedForRules ? (() => {
     const sheetTotal = parseQuantityToKg(selectedForRules.flourTotalText, selectedForRules.flourUnitBE).kg;
     const sheetBakery = parseQuantityToKg(selectedForRules.bakeryQtyText, selectedForRules.flourUnitBE).kg;
@@ -360,12 +505,12 @@ export default function ContentModule() {
     return ok ? "Coincide" : "No coincide";
   })() : "Sin dato";
 
-  const flourParsed = parseQuantityToKg(flourTotalText, selected?.flourUnitBE);
-  const bakeryParsed = parseQuantityToKg(bakeryQtyText, selected?.flourUnitBE);
-  const pastryParsed = parseQuantityToKg(pastryQtyText, selected?.flourUnitBE);
-  const flourKg = flourParsed.kg ?? toNumber(selectedForRules?.flourKgStandardText || "");
-  const bakeryKg = bakeryParsed.kg;
-  const pastryKg = pastryParsed.kg;
+  const flourCard = parseFlourQuantity(flourNum, flourUnit, selected?.flourUnitBE);
+  const bakeryCard = parseFlourQuantity(bakeryNum, bakeryUnit, selected?.flourUnitBE);
+  const pastryCard = parseFlourQuantity(pastryNum, pastryUnit, selected?.flourUnitBE);
+  const flourKg = flourCard.kg ?? toNumber(selectedForRules?.flourKgStandardText || "");
+  const bakeryKg = bakeryCard.kg;
+  const pastryKg = pastryCard.kg;
   const productionType: "panaderia" | "pasteleria" | "mixto" = (() => {
     const hasBakery = (bakeryKg ?? 0) > 0;
     const hasPastry = (pastryKg ?? 0) > 0;
@@ -373,7 +518,6 @@ export default function ContentModule() {
     if (hasBakery) return "panaderia";
     return "pasteleria";
   })();
-  const yeastRange = YEAST_RANGES[productionType];
   const levapanKg = toKgFromYeastText(levapanText) ?? 0;
   const fleischmanKg = toKgFromYeastText(fleischmanText) ?? 0;
   const levasafKg = toKgFromYeastText(levasafText) ?? 0;
@@ -420,12 +564,13 @@ export default function ContentModule() {
     yeastSantillanaKg +
     (yeastOtherDryKg * 3)
   );
-  const yeastPctEstimate = flourKg && flourKg > 0 ? (yeastTotalKg / flourKg) * 100 : null;
-  const yeastInRange = yeastPctEstimate === null
-    ? null
-    : yeastPctEstimate >= (yeastRange.freshMinPct * 100) && yeastPctEstimate <= (yeastRange.freshMaxPct * 100);
 
-  const yeastQualityStatus = getYeastQualityStatus({ flourKg: flourKg ?? null, yeastTotalKg, productionType });
+  const yeastQualityStatus = getYeastQualityStatus({
+    flourKg: flourKg ?? null,
+    yeastTotalKg,
+    productionType,
+    businessTypeText: selected?.businessTypeText,
+  });
   const yeastPriceStatus = getYeastPriceStatus([
     levapanParsed.price,
     fleischmanParsed.price,
@@ -443,46 +588,277 @@ export default function ContentModule() {
     yeastOtherDryParsed.price,
   ]);
 
-  useEffect(() => {
-    setContentStatus(selected?.contentStatus || "");
-    setFlourTotalText(selected?.flourTotalText || "");
-    setBakeryQtyText(selected?.bakeryQtyText || "");
-    setPastryQtyText(selected?.pastryQtyText || "");
-    setLevapanText(selected?.levapanText || "");
-    setFleischmanText(selected?.fleischmanText || "");
-    setLevasafText(selected?.levasafText || "");
-    setOtherYeastText(selected?.otherYeastText || "");
-    setYeastAngelText(selected?.yeastAngelText || "");
-    setYeastPanificadorText(selected?.yeastPanificadorText || "");
-    setYeastFermipanText(selected?.yeastFermipanText || "");
-    setYeastGloripanText(selected?.yeastGloripanText || "");
-    setYeastInstafermText(selected?.yeastInstafermText || "");
-    setYeastInstantSuccText(selected?.yeastInstantSuccText || "");
-    setYeastMauripanText(selected?.yeastMauripanText || "");
-    setYeastSafInstantText(selected?.yeastSafInstantText || "");
-    setYeastSantillanaText(selected?.yeastSantillanaText || "");
-    setYeastOtherDryText(selected?.yeastOtherDryText || "");
+  const rule1 = selectedForRules && selected
+    ? getRule1Status(flourTotalText, bakeryQtyText, pastryQtyText, selected.flourUnitBE)
+    : "Sin dato";
+  const dbS = selectedForRules ? getDbStatus(selectedForRules) : "Sin dato";
+  const dcS = selectedForRules ? getDcStatus(selectedForRules) : "Sin dato";
+  const globalOutcome = selectedForRules && selected
+    ? computeGlobalOutcome({
+        rule1,
+        yeastQ: yeastQualityStatus,
+        yeastP: yeastPriceStatus,
+        db: dbS,
+        dc: dcS,
+        phoneCmp: phoneCompareStatus,
+      })
+    : "revisar";
+  const ratioDecimal = flourKg && flourKg > 0 ? yeastTotalKg / flourKg : null;
+  const ratioRuleLabel =
+    yeastQualityStatus === "No aplica"
+      ? "No aplica (pastelería o tipo de negocio en columna H)."
+      : "Rango permitido del ratio levadura ÷ harina: 0,005 – 0,050. Incluye ponderación ×3 en “otras” marcas.";
+
+  const yeastQualityDetail =
+    yeastQualityStatus === "No aplica"
+      ? "Pastelería: no se evalúa el ratio harina/levadura."
+      : yeastQualityStatus === "Cumple"
+        ? `Cumple. Ratio ${ratioDecimal?.toFixed(4) ?? "—"}.`
+        : yeastQualityStatus === "No cumple"
+          ? `No cumple. Ratio ${ratioDecimal?.toFixed(4) ?? "—"} fuera de 0,005 – 0,050.`
+          : `Sin dato suficiente. Ratio ${ratioDecimal?.toFixed(4) ?? "—"}.`;
+
+  const priceDetail =
+    yeastPriceStatus === "Cumple"
+      ? "Ningún precio supera el umbral de control (19.500)."
+      : yeastPriceStatus === "Falla"
+        ? "Hay precios por encima del umbral (19.500)."
+        : "Sin precios informados en las marcas.";
+
+  const consistenciaDetail =
+    rule1 === "Correcta"
+      ? "La harina total es consistente con panadería + pastelería."
+      : rule1 === "Falla"
+        ? "La suma de panadería y pastelería no coincide con la harina total."
+        : "Faltan datos o hay ambigüedad en cantidades.";
+
+  const dbDetail = `DB estandarizado: ${dbS}. Controles CG/CH: ${dcS}.`;
+
+  const yeastQualityOk = yeastQualityStatus === "Cumple";
+  const yeastQualityWarn = yeastQualityStatus === "No aplica" || yeastQualityStatus === "Sin dato";
+  const priceOk = yeastPriceStatus === "Cumple";
+  const priceWarn = yeastPriceStatus === "Sin dato";
+  const consistenciaOk = rule1 === "Correcta";
+  const consistenciaWarn = rule1 === "Sin dato";
+  const dbOk = dbS === "Cumple" && dcS === "Cumple";
+  const dbWarn = dbS === "Sin dato" || dcS === "Sin dato";
+  const phoneCompareOk = phoneCompareStatus === "Coincide";
+  const phoneCompareWarn = phoneCompareStatus === "Sin dato";
+
+  const flourLine = lineStatusForCard("flour", flourCard.status, rule1);
+  const bakeryLine = lineStatusForCard("bakery", bakeryCard.status, rule1);
+  const pastryLine = lineStatusForCard("pastry", pastryCard.status, rule1);
+
+  const yeastValues = useMemo(
+    () => ({
+      levapan: levapanText,
+      fleischman: fleischmanText,
+      levasaf: levasafText,
+      otherFresh: otherYeastText,
+      angel: yeastAngelText,
+      panificador: yeastPanificadorText,
+      fermipan: yeastFermipanText,
+      gloripan: yeastGloripanText,
+      instaferm: yeastInstafermText,
+      instantSucc: yeastInstantSuccText,
+      mauripan: yeastMauripanText,
+      safInstant: yeastSafInstantText,
+      santillana: yeastSantillanaText,
+      otherDry: yeastOtherDryText,
+    }),
+    [
+      levapanText,
+      fleischmanText,
+      levasafText,
+      otherYeastText,
+      yeastAngelText,
+      yeastPanificadorText,
+      yeastFermipanText,
+      yeastGloripanText,
+      yeastInstafermText,
+      yeastInstantSuccText,
+      yeastMauripanText,
+      yeastSafInstantText,
+      yeastSantillanaText,
+      yeastOtherDryText,
+    ],
+  );
+
+  const handleYeastCellChange = useCallback((id: string, text: string) => {
+    switch (id) {
+      case "levapan": setLevapanText(text); break;
+      case "fleischman": setFleischmanText(text); break;
+      case "levasaf": setLevasafText(text); break;
+      case "otherFresh": setOtherYeastText(text); break;
+      case "angel": setYeastAngelText(text); break;
+      case "panificador": setYeastPanificadorText(text); break;
+      case "fermipan": setYeastFermipanText(text); break;
+      case "gloripan": setYeastGloripanText(text); break;
+      case "instaferm": setYeastInstafermText(text); break;
+      case "instantSucc": setYeastInstantSuccText(text); break;
+      case "mauripan": setYeastMauripanText(text); break;
+      case "safInstant": setYeastSafInstantText(text); break;
+      case "santillana": setYeastSantillanaText(text); break;
+      case "otherDry": setYeastOtherDryText(text); break;
+      default: break;
+    }
+  }, []);
+
+  const qtyYeastSnapshot = useMemo(
+    () =>
+      stableQtyYeastKey({
+        flourTotalText,
+        bakeryQtyText,
+        pastryQtyText,
+        levapanText,
+        fleischmanText,
+        levasafText,
+        otherYeastText,
+        yeastAngelText,
+        yeastPanificadorText,
+        yeastFermipanText,
+        yeastGloripanText,
+        yeastInstafermText,
+        yeastInstantSuccText,
+        yeastMauripanText,
+        yeastSafInstantText,
+        yeastSantillanaText,
+        yeastOtherDryText,
+      }),
+    [
+      flourTotalText,
+      bakeryQtyText,
+      pastryQtyText,
+      levapanText,
+      fleischmanText,
+      levasafText,
+      otherYeastText,
+      yeastAngelText,
+      yeastPanificadorText,
+      yeastFermipanText,
+      yeastGloripanText,
+      yeastInstafermText,
+      yeastInstantSuccText,
+      yeastMauripanText,
+      yeastSafInstantText,
+      yeastSantillanaText,
+      yeastOtherDryText,
+    ],
+  );
+
+  const debouncedQtyYeast = useDebouncedValue(qtyYeastSnapshot, 900);
+
+  const draftQtyYeastRef = useRef({
+    flourTotalText: "",
+    bakeryQtyText: "",
+    pastryQtyText: "",
+    levapanText: "",
+    fleischmanText: "",
+    levasafText: "",
+    otherYeastText: "",
+    yeastAngelText: "",
+    yeastPanificadorText: "",
+    yeastFermipanText: "",
+    yeastGloripanText: "",
+    yeastInstafermText: "",
+    yeastInstantSuccText: "",
+    yeastMauripanText: "",
+    yeastSafInstantText: "",
+    yeastSantillanaText: "",
+    yeastOtherDryText: "",
+  });
+
+  useLayoutEffect(() => {
+    draftQtyYeastRef.current = {
+      flourTotalText,
+      bakeryQtyText,
+      pastryQtyText,
+      levapanText,
+      fleischmanText,
+      levasafText,
+      otherYeastText,
+      yeastAngelText,
+      yeastPanificadorText,
+      yeastFermipanText,
+      yeastGloripanText,
+      yeastInstafermText,
+      yeastInstantSuccText,
+      yeastMauripanText,
+      yeastSafInstantText,
+      yeastSantillanaText,
+      yeastOtherDryText,
+    };
   }, [
-    selected?.id,
-    selected?.contentStatus,
-    selected?.flourTotalText,
-    selected?.bakeryQtyText,
-    selected?.pastryQtyText,
-    selected?.levapanText,
-    selected?.fleischmanText,
-    selected?.levasafText,
-    selected?.otherYeastText,
-    selected?.yeastAngelText,
-    selected?.yeastPanificadorText,
-    selected?.yeastFermipanText,
-    selected?.yeastGloripanText,
-    selected?.yeastInstafermText,
-    selected?.yeastInstantSuccText,
-    selected?.yeastMauripanText,
-    selected?.yeastSafInstantText,
-    selected?.yeastSantillanaText,
-    selected?.yeastOtherDryText,
+    flourTotalText,
+    bakeryQtyText,
+    pastryQtyText,
+    levapanText,
+    fleischmanText,
+    levasafText,
+    otherYeastText,
+    yeastAngelText,
+    yeastPanificadorText,
+    yeastFermipanText,
+    yeastGloripanText,
+    yeastInstafermText,
+    yeastInstantSuccText,
+    yeastMauripanText,
+    yeastSafInstantText,
+    yeastSantillanaText,
+    yeastOtherDryText,
   ]);
+
+  useLayoutEffect(() => {
+    if (!selected) {
+      autosaveRowIdRef.current = null;
+      return;
+    }
+    setContentStatus(selected.contentStatus || "");
+    const f = parseInitialNumAndUnit(selected.flourTotalText || "", selected.flourUnitBE);
+    setFlourNum(f.num);
+    setFlourUnit(f.unit);
+    const b = parseInitialNumAndUnit(selected.bakeryQtyText || "", selected.flourUnitBE);
+    setBakeryNum(b.num);
+    setBakeryUnit(b.unit);
+    const p = parseInitialNumAndUnit(selected.pastryQtyText || "", selected.flourUnitBE);
+    setPastryNum(p.num);
+    setPastryUnit(p.unit);
+    setLevapanText(selected.levapanText || "");
+    setFleischmanText(selected.fleischmanText || "");
+    setLevasafText(selected.levasafText || "");
+    setOtherYeastText(selected.otherYeastText || "");
+    setYeastAngelText(selected.yeastAngelText || "");
+    setYeastPanificadorText(selected.yeastPanificadorText || "");
+    setYeastFermipanText(selected.yeastFermipanText || "");
+    setYeastGloripanText(selected.yeastGloripanText || "");
+    setYeastInstafermText(selected.yeastInstafermText || "");
+    setYeastInstantSuccText(selected.yeastInstantSuccText || "");
+    setYeastMauripanText(selected.yeastMauripanText || "");
+    setYeastSafInstantText(selected.yeastSafInstantText || "");
+    setYeastSantillanaText(selected.yeastSantillanaText || "");
+    setYeastOtherDryText(selected.yeastOtherDryText || "");
+    lastQtyYeastSavedRef.current = stableQtyYeastKey({
+      flourTotalText: selected.flourTotalText || "",
+      bakeryQtyText: selected.bakeryQtyText || "",
+      pastryQtyText: selected.pastryQtyText || "",
+      levapanText: selected.levapanText || "",
+      fleischmanText: selected.fleischmanText || "",
+      levasafText: selected.levasafText || "",
+      otherYeastText: selected.otherYeastText || "",
+      yeastAngelText: selected.yeastAngelText || "",
+      yeastPanificadorText: selected.yeastPanificadorText || "",
+      yeastFermipanText: selected.yeastFermipanText || "",
+      yeastGloripanText: selected.yeastGloripanText || "",
+      yeastInstafermText: selected.yeastInstafermText || "",
+      yeastInstantSuccText: selected.yeastInstantSuccText || "",
+      yeastMauripanText: selected.yeastMauripanText || "",
+      yeastSafInstantText: selected.yeastSafInstantText || "",
+      yeastSantillanaText: selected.yeastSantillanaText || "",
+      yeastOtherDryText: selected.yeastOtherDryText || "",
+    });
+    autosaveRowIdRef.current = selected.id;
+    setSheetSyncState("idle");
+  }, [selected?.id]);
 
   useEffect(() => {
     const reload = () => setPhoneMap(loadPhoneContentMap());
@@ -588,46 +964,117 @@ export default function ContentModule() {
     }
   };
 
-  const handleSaveContentFields = async () => {
-    if (!selected) return;
-    const updated: Establishment = {
-      ...selected,
-      flourTotalText: flourTotalText.trim(),
-      bakeryQtyText: bakeryQtyText.trim(),
-      pastryQtyText: pastryQtyText.trim(),
-      levapanText: levapanText.trim(),
-      fleischmanText: fleischmanText.trim(),
-      levasafText: levasafText.trim(),
-      otherYeastText: otherYeastText.trim(),
+  useEffect(() => {
+    if (!selected || autosaveRowIdRef.current !== selected.id) return;
+    if (debouncedQtyYeast === lastQtyYeastSavedRef.current) return;
+    const d = draftQtyYeastRef.current;
+    if (stableQtyYeastKey(d) !== debouncedQtyYeast) return;
+
+    let cancelled = false;
+    const trim = (s: string) => (s || "").trim();
+    (async () => {
+      try {
+        setSheetSyncState("saving");
+        const updated: Establishment = {
+          ...selected,
+          flourTotalText: trim(d.flourTotalText),
+          bakeryQtyText: trim(d.bakeryQtyText),
+          pastryQtyText: trim(d.pastryQtyText),
+          levapanText: trim(d.levapanText),
+          fleischmanText: trim(d.fleischmanText),
+          levasafText: trim(d.levasafText),
+          otherYeastText: trim(d.otherYeastText),
+          yeastAngelText: trim(d.yeastAngelText),
+          yeastPanificadorText: trim(d.yeastPanificadorText),
+          yeastFermipanText: trim(d.yeastFermipanText),
+          yeastGloripanText: trim(d.yeastGloripanText),
+          yeastInstafermText: trim(d.yeastInstafermText),
+          yeastInstantSuccText: trim(d.yeastInstantSuccText),
+          yeastMauripanText: trim(d.yeastMauripanText),
+          yeastSafInstantText: trim(d.yeastSafInstantText),
+          yeastSantillanaText: trim(d.yeastSantillanaText),
+          yeastOtherDryText: trim(d.yeastOtherDryText),
+        };
+        updateEstablishment(updated, { skipAutoSync: true });
+        const rowNumber = await resolveRowNumber(updated);
+        if (cancelled || autosaveRowIdRef.current !== selected.id) return;
+        if (!rowNumber) {
+          setSheetSyncState("error");
+          toast.error("No se encontró la fila en Sheets. Los cambios quedaron solo en este dispositivo.");
+          return;
+        }
+        await invokeGoogleSheets({
+          action: "updateContentFields",
+          sheetId: connectedSheetId,
+          sheetTab: connectedSheetTab || undefined,
+          rowNumber,
+          flourTotalText: updated.flourTotalText,
+          bakeryQtyText: updated.bakeryQtyText,
+          pastryQtyText: updated.pastryQtyText,
+          levapanText: updated.levapanText,
+          fleischmanText: updated.fleischmanText,
+          levasafText: updated.levasafText,
+          otherYeastText: updated.otherYeastText,
+          yeastAngelText: updated.yeastAngelText,
+          yeastPanificadorText: updated.yeastPanificadorText,
+          yeastFermipanText: updated.yeastFermipanText,
+          yeastGloripanText: updated.yeastGloripanText,
+          yeastInstafermText: updated.yeastInstafermText,
+          yeastInstantSuccText: updated.yeastInstantSuccText,
+          yeastMauripanText: updated.yeastMauripanText,
+          yeastSafInstantText: updated.yeastSafInstantText,
+          yeastSantillanaText: updated.yeastSantillanaText,
+          yeastOtherDryText: updated.yeastOtherDryText,
+        });
+        if (cancelled || autosaveRowIdRef.current !== selected.id) return;
+        lastQtyYeastSavedRef.current = debouncedQtyYeast;
+        setSheetSyncState("saved");
+        window.setTimeout(() => {
+          setSheetSyncState((prev) => (prev === "saved" ? "idle" : prev));
+        }, 2200);
+      } catch (e: unknown) {
+        if (!cancelled) {
+          setSheetSyncState("error");
+          toast.error(e instanceof Error ? e.message : "Error al sincronizar con Sheets");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
     };
-    updateEstablishment(updated, { skipAutoSync: true });
-    const rowNumber = await resolveRowNumber(updated);
-    if (!rowNumber) {
-      toast.error("Se guardó localmente, pero no se pudo sincronizar con Sheets (fila no encontrada)");
-      return;
-    }
-    try {
-      setSavingContentFields(true);
-      await invokeGoogleSheets({
-        action: "updateContentFields",
-        sheetId: connectedSheetId,
-        sheetTab: connectedSheetTab || undefined,
-        rowNumber,
-        flourTotalText: updated.flourTotalText,
-        bakeryQtyText: updated.bakeryQtyText,
-        pastryQtyText: updated.pastryQtyText,
-        levapanText: updated.levapanText,
-        fleischmanText: updated.fleischmanText,
-        levasafText: updated.levasafText,
-        otherYeastText: updated.otherYeastText,
-      });
-      toast.success("Cantidades guardadas");
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "No se pudo guardar");
-    } finally {
-      setSavingContentFields(false);
-    }
-  };
+  }, [
+    debouncedQtyYeast,
+    selected,
+    connectedSheetId,
+    connectedSheetTab,
+    updateEstablishment,
+  ]);
+
+  const kgInfoTooltip = useMemo(
+    () => (
+      <div className="space-y-2">
+        <p className="font-medium text-foreground">Equivalencias a kg (harina), como en la hoja</p>
+        <ul className="list-inside list-disc space-y-1 text-muted-foreground">
+          <li>
+            kg → factor <span className="font-mono text-foreground">{(0.08 * 12.5).toFixed(3)}</span>
+          </li>
+          <li>
+            bultos → <span className="font-mono text-foreground">{(4 * 12.5).toFixed(1)}</span> por bulto
+          </li>
+          <li>
+            lb → <span className="font-mono text-foreground">{(0.0363 * 125).toFixed(4)}</span>
+          </li>
+          <li>
+            arroba → <span className="font-mono text-foreground">{flourUnitToKgFactor("arroba")}</span>
+          </li>
+        </ul>
+        <p className="text-[10px] text-muted-foreground">
+          Ratio levadura ÷ harina: entre 0,005 y 0,050 (levadura total ponderada, con ×3 en otras marcas). Pastelería pura: no aplica.
+        </p>
+      </div>
+    ),
+    [],
+  );
 
   return (
     <div className="space-y-6">
@@ -636,100 +1083,39 @@ export default function ContentModule() {
         <p className="text-sm text-muted-foreground mt-1">Validación de cantidades por encuestador y establecimiento.</p>
       </div>
 
-      <div className="rounded-xl border bg-card/80 shadow-sm reveal-up reveal-up-delay-1 overflow-hidden">
-        <div className="flex flex-wrap items-center gap-3 border-b bg-muted/30 px-4 py-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-            <SlidersHorizontal className="h-4 w-4" aria-hidden />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold">Filtros</p>
-            <p className="text-xs text-muted-foreground">Encuestador, establecimiento, fechas y estados (misma lógica que antes).</p>
-          </div>
-        </div>
-        <div className="space-y-5 p-4">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-12 lg:items-end">
-            <div className="space-y-2 sm:col-span-2 lg:col-span-4">
-              <Label className="text-xs font-medium text-muted-foreground">Encuestador</Label>
-              <Button type="button" variant="outline" className="h-10 w-full justify-between font-normal shadow-none" onClick={() => setSurveyorPickerOpen(true)}>
-                <span className="truncate text-left">
-                  {selectedSurveyors.length === 0
-                    ? "Todos"
-                    : selectedSurveyors.length === 1
-                      ? selectedSurveyors[0]
-                      : `${selectedSurveyors.length} encuestadores`}
-                </span>
-                <Search className="w-4 h-4 shrink-0 text-muted-foreground" />
-              </Button>
-              {selectedSurveyors.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5 pt-0.5">
-                  {selectedSurveyors.slice(0, 4).map((s) => (
-                    <span key={s} className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-[11px]">
-                      <span className="max-w-[140px] truncate">{s}</span>
-                      <button type="button" className="rounded-full p-0.5 hover:bg-muted" aria-label={`Quitar ${s}`} onClick={() => setSelectedSurveyors((prev) => prev.filter((x) => x !== s))}>
-                        <X className="w-3 h-3" />
-                      </button>
-                    </span>
-                  ))}
-                  {selectedSurveyors.length > 4 ? (
-                    <span className="self-center text-[11px] text-muted-foreground">+{selectedSurveyors.length - 4}</span>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-            <div className="space-y-2 sm:col-span-2 lg:col-span-4">
-              <Label className="text-xs font-medium text-muted-foreground" htmlFor="content-search-est">Establecimiento</Label>
-              <Input
-                id="content-search-est"
-                value={establishmentQuery}
-                onChange={(e) => setEstablishmentQuery(e.target.value)}
-                placeholder="Nombre del establecimiento…"
-                className="h-10"
-              />
-            </div>
-            <div className="space-y-2 lg:col-span-2">
-              <Label className="text-xs font-medium text-muted-foreground" htmlFor="content-date-from">Fecha desde</Label>
-              <Input id="content-date-from" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="h-10" />
-            </div>
-            <div className="space-y-2 lg:col-span-2">
-              <Label className="text-xs font-medium text-muted-foreground" htmlFor="content-date-to">Fecha hasta</Label>
-              <Input id="content-date-to" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="h-10" />
-            </div>
-          </div>
-
-          <div className="rounded-lg border bg-muted/20 p-3 sm:p-4">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Estados</p>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label className="text-xs font-medium">Estado contenido</Label>
-                <Select value={brStateFilter} onValueChange={setBrStateFilter}>
-                  <SelectTrigger className="h-10 bg-background"><SelectValue placeholder="Seleccionar" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__all__">Todos</SelectItem>
-                    <SelectItem value="__empty__">Sin dato</SelectItem>
-                    {brStates.map((s) => (
-                      <SelectItem key={s} value={s}>{s}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs font-medium">Estado telefónico</Label>
-                <Select value={phoneStateFilter} onValueChange={setPhoneStateFilter}>
-                  <SelectTrigger className="h-10 bg-background"><SelectValue placeholder="Seleccionar" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__all__">Todos</SelectItem>
-                    <SelectItem value="__empty__">Sin dato</SelectItem>
-                    {phoneStates.map((s) => (
-                      <SelectItem key={s} value={s}>{s}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </div>
-
-          <p className="text-xs text-muted-foreground">El filtro de fechas usa la columna A (Respuesta iniciada), tomando solo día/mes/año.</p>
-        </div>
+      <div className="reveal-up reveal-up-delay-1 overflow-hidden rounded-xl border border-border/80 bg-card shadow-sm">
+        <ContentFilterBar
+          surveyors={surveyors}
+          selectedSurveyors={selectedSurveyors}
+          onSelectedSurveyorsChange={setSelectedSurveyors}
+          establishmentSearch={establishmentInput}
+          onEstablishmentSearchChange={setEstablishmentInput}
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          onDateFromChange={setDateFrom}
+          onDateToChange={setDateTo}
+          activeFilterCount={activeFilterCount}
+          onClearAll={() => {
+            setSelectedSurveyors([]);
+            setEstablishmentInput("");
+            setDateFrom("");
+            setDateTo("");
+            setBrStateFilter("__all__");
+            setPhoneStateFilter("__all__");
+            setAdvSection("");
+          }}
+        />
+        <ContentAdvancedFilters
+          brStates={brStates}
+          phoneStates={phoneStates}
+          brStateFilter={brStateFilter}
+          phoneStateFilter={phoneStateFilter}
+          onBrStateChange={setBrStateFilter}
+          onPhoneStateChange={setPhoneStateFilter}
+          openSection={advSection}
+          onOpenSectionChange={setAdvSection}
+          secondaryActiveCount={secondaryFiltersActiveCount}
+        />
       </div>
 
       <div className="space-y-3">
@@ -766,343 +1152,210 @@ export default function ContentModule() {
         ) : null}
       </div>
 
-      <Dialog open={surveyorPickerOpen} onOpenChange={setSurveyorPickerOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Seleccionar encuestadores</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <Input
-              value={surveyorSearch}
-              onChange={(e) => setSurveyorSearch(e.target.value)}
-              placeholder="Buscar encuestador..."
-              className="h-10"
-            />
-            <div className="max-h-72 overflow-y-auto rounded-md border p-2 space-y-1">
-              {visibleSurveyors.map((s) => {
-                const checked = selectedSurveyors.includes(s);
-                return (
-                  <button
-                    key={s}
-                    type="button"
-                    className={`w-full text-left px-2 py-1.5 rounded text-sm ${checked ? "bg-primary/10 text-primary" : "hover:bg-muted"}`}
-                    onClick={() => {
-                      setSelectedSurveyors((prev) => checked ? prev.filter((x) => x !== s) : [...prev, s]);
-                    }}
-                  >
-                    {checked ? "✓ " : ""}{s}
-                  </button>
-                );
-              })}
-              {visibleSurveyors.length === 0 ? (
-                <p className="text-sm text-muted-foreground p-2">Sin resultados.</p>
-              ) : null}
-            </div>
-            <div className="flex items-center justify-between">
-              <Button type="button" variant="outline" size="sm" onClick={() => setSelectedSurveyors([])}>
-                Limpiar
-              </Button>
-              <Button type="button" size="sm" onClick={() => setSurveyorPickerOpen(false)}>
-                Aplicar
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
       <Dialog open={!!selected} onOpenChange={(open) => { if (!open) setSelectedId(null); }}>
-        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="relative flex max-h-[min(90vh,920px)] max-w-5xl flex-col gap-0 overflow-hidden p-0">
           {!selected || !selectedForRules ? null : (
-            <div className="space-y-4">
-              <DialogHeader>
-                <DialogTitle>{selected.name}</DialogTitle>
-                <p className="text-xs text-muted-foreground">{selected.city} · {selected.address}</p>
-              </DialogHeader>
+            <TooltipProvider delayDuration={200}>
+              <div className="max-h-[min(90vh,920px)] overflow-y-auto p-5 pb-28 sm:p-6">
+                <DialogHeader className="sr-only">
+                  <DialogTitle>Validación de contenido · {selected.name}</DialogTitle>
+                </DialogHeader>
 
-              <div className="rounded-lg border p-3">
-                <p className="text-xs text-muted-foreground mb-2">Estado contenido</p>
-                <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-                  <Select value={contentStatus || "__empty__"} onValueChange={(v) => setContentStatus(v === "__empty__" ? "" : v)}>
-                    <SelectTrigger className="h-9 sm:max-w-sm"><SelectValue placeholder="Selecciona estado" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__empty__">Sin estado</SelectItem>
-                      {CONTENT_STATUS_OPTIONS.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                  <Button type="button" size="sm" className="h-9" onClick={handleSaveContentStatus} disabled={savingContentStatus}>
-                    {savingContentStatus ? "Guardando..." : "Guardar estado"}
-                  </Button>
-                  <Button type="button" variant="outline" size="sm" className="h-9 gap-1" onClick={() => setKgInfoOpen(true)}>
-                    <Info className="w-4 h-4" /> Info kg
-                  </Button>
+                <div className="mb-4 flex flex-wrap items-center justify-end gap-2">
+                  <GlobalOutcomeBadge status={globalOutcome} />
                 </div>
-              </div>
 
-              <div className="rounded-lg border p-3 space-y-3">
-                <p className="text-xs text-muted-foreground">Cantidades editables (M, N, O, R, S, T, U)</p>
-                <p className="text-[11px] text-muted-foreground">Unidad declarada BE: {showValue(selected.flourUnitBE || "")}</p>
-                <div className="grid sm:grid-cols-3 gap-3">
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Total de harina que consume</Label>
-                    <Input value={flourTotalText} onChange={(e) => setFlourTotalText(e.target.value)} className="h-9" />
-                    <p className="text-[11px] text-muted-foreground">
-                      KG estimados: {flourKg === null ? "Sin dato" : flourKg.toFixed(2)} · Estado: {flourParsed.status}
-                    </p>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Elaborar panadería</Label>
-                    <Input value={bakeryQtyText} onChange={(e) => setBakeryQtyText(e.target.value)} className="h-9" />
-                    <p className="text-[11px] text-muted-foreground">
-                      KG estimados: {bakeryKg === null ? "Sin dato" : bakeryKg.toFixed(2)} · Estado: {bakeryParsed.status}
-                    </p>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Elaborar pastelería</Label>
-                    <Input value={pastryQtyText} onChange={(e) => setPastryQtyText(e.target.value)} className="h-9" />
-                    <p className="text-[11px] text-muted-foreground">
-                      KG estimados: {pastryKg === null ? "Sin dato" : pastryKg.toFixed(2)} · Estado: {pastryParsed.status}
-                    </p>
-                  </div>
-                </div>
-                <div className="grid sm:grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Levapan</Label>
-                    <Input value={levapanText} onChange={(e) => setLevapanText(e.target.value)} className="h-9" />
-                    <p className="text-[11px] text-muted-foreground">
-                      Cantidad: {levapanParsed.quantity ?? "Sin dato"} · Precio: {levapanParsed.price ?? "Sin dato"}
-                    </p>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Fleischman</Label>
-                    <Input value={fleischmanText} onChange={(e) => setFleischmanText(e.target.value)} className="h-9" />
-                    <p className="text-[11px] text-muted-foreground">
-                      Cantidad: {fleischmanParsed.quantity ?? "Sin dato"} · Precio: {fleischmanParsed.price ?? "Sin dato"}
-                    </p>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Levasaf</Label>
-                    <Input value={levasafText} onChange={(e) => setLevasafText(e.target.value)} className="h-9" />
-                    <p className="text-[11px] text-muted-foreground">
-                      Cantidad: {levasafParsed.quantity ?? "Sin dato"} · Precio: {levasafParsed.price ?? "Sin dato"}
-                    </p>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Otra Marca Fresca</Label>
-                    <Input value={otherYeastText} onChange={(e) => setOtherYeastText(e.target.value)} className="h-9" />
-                    <p className="text-[11px] text-muted-foreground">
-                      Cantidad: {otherYeastParsed.quantity ?? "Sin dato"} · Precio: {otherYeastParsed.price ?? "Sin dato"}
-                    </p>
-                  </div>
-                </div>
-                <div className="rounded-md border bg-muted/20 p-2">
-                  <p className="text-[11px] text-muted-foreground font-medium mb-2">Levaduras (secas / marcas)</p>
-                  <div className="grid sm:grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Angel</Label>
-                      <Input value={yeastAngelText} onChange={(e) => setYeastAngelText(e.target.value)} className="h-9" />
-                      <p className="text-[11px] text-muted-foreground">Cantidad: {yeastAngelParsed.quantity ?? "Sin dato"} · Precio: {yeastAngelParsed.price ?? "Sin dato"}</p>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">El Panificador</Label>
-                      <Input value={yeastPanificadorText} onChange={(e) => setYeastPanificadorText(e.target.value)} className="h-9" />
-                      <p className="text-[11px] text-muted-foreground">Cantidad: {yeastPanificadorParsed.quantity ?? "Sin dato"} · Precio: {yeastPanificadorParsed.price ?? "Sin dato"}</p>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Fermipan</Label>
-                      <Input value={yeastFermipanText} onChange={(e) => setYeastFermipanText(e.target.value)} className="h-9" />
-                      <p className="text-[11px] text-muted-foreground">Cantidad: {yeastFermipanParsed.quantity ?? "Sin dato"} · Precio: {yeastFermipanParsed.price ?? "Sin dato"}</p>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Gloripan</Label>
-                      <Input value={yeastGloripanText} onChange={(e) => setYeastGloripanText(e.target.value)} className="h-9" />
-                      <p className="text-[11px] text-muted-foreground">Cantidad: {yeastGloripanParsed.quantity ?? "Sin dato"} · Precio: {yeastGloripanParsed.price ?? "Sin dato"}</p>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Instaferm</Label>
-                      <Input value={yeastInstafermText} onChange={(e) => setYeastInstafermText(e.target.value)} className="h-9" />
-                      <p className="text-[11px] text-muted-foreground">Cantidad: {yeastInstafermParsed.quantity ?? "Sin dato"} · Precio: {yeastInstafermParsed.price ?? "Sin dato"}</p>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Instant Succ</Label>
-                      <Input value={yeastInstantSuccText} onChange={(e) => setYeastInstantSuccText(e.target.value)} className="h-9" />
-                      <p className="text-[11px] text-muted-foreground">Cantidad: {yeastInstantSuccParsed.quantity ?? "Sin dato"} · Precio: {yeastInstantSuccParsed.price ?? "Sin dato"}</p>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Mauripan</Label>
-                      <Input value={yeastMauripanText} onChange={(e) => setYeastMauripanText(e.target.value)} className="h-9" />
-                      <p className="text-[11px] text-muted-foreground">Cantidad: {yeastMauripanParsed.quantity ?? "Sin dato"} · Precio: {yeastMauripanParsed.price ?? "Sin dato"}</p>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">SAF Instant</Label>
-                      <Input value={yeastSafInstantText} onChange={(e) => setYeastSafInstantText(e.target.value)} className="h-9" />
-                      <p className="text-[11px] text-muted-foreground">Cantidad: {yeastSafInstantParsed.quantity ?? "Sin dato"} · Precio: {yeastSafInstantParsed.price ?? "Sin dato"}</p>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Santillana</Label>
-                      <Input value={yeastSantillanaText} onChange={(e) => setYeastSantillanaText(e.target.value)} className="h-9" />
-                      <p className="text-[11px] text-muted-foreground">Cantidad: {yeastSantillanaParsed.quantity ?? "Sin dato"} · Precio: {yeastSantillanaParsed.price ?? "Sin dato"}</p>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Otra Marca Seca</Label>
-                      <Input value={yeastOtherDryText} onChange={(e) => setYeastOtherDryText(e.target.value)} className="h-9" />
-                      <p className="text-[11px] text-muted-foreground">Cantidad: {yeastOtherDryParsed.quantity ?? "Sin dato"} · Precio: {yeastOtherDryParsed.price ?? "Sin dato"}</p>
-                    </div>
-                  </div>
-                </div>
-                <Button type="button" size="sm" className="h-9" onClick={handleSaveContentFields} disabled={savingContentFields}>
-                  {savingContentFields ? "Guardando..." : "Guardar cantidades"}
-                </Button>
-              </div>
+                <HeaderContenido
+                  name={selected.name}
+                  address={selected.address || ""}
+                  city={selected.city || ""}
+                  businessTypeRaw={selected.businessTypeText || selected.notes || ""}
+                  contentStatusOptions={CONTENT_STATUS_OPTIONS}
+                  contentStatus={contentStatus}
+                  onContentStatusChange={setContentStatus}
+                  onSaveStatus={handleSaveContentStatus}
+                  savingStatus={savingContentStatus}
+                  globalStatus={globalOutcome}
+                  kgInfoTooltip={kgInfoTooltip}
+                />
 
-              <div className="rounded-lg border p-3">
-                <p className="text-xs text-muted-foreground mb-2">Contenido obtenido por telefónico</p>
-                <div className="grid sm:grid-cols-3 gap-3">
-                  <p className="text-sm">Total: <span className="font-medium">{showValue(phoneEntry?.totalValue || "")} {phoneEntry?.totalUnit || ""}</span></p>
-                  <p className="text-sm">Panadería: <span className="font-medium">{showValue(phoneEntry?.bakeryValue || "")} {phoneEntry?.bakeryUnit || ""}</span></p>
-                  <p className="text-sm">Pastelería: <span className="font-medium">{showValue(phoneEntry?.pastryValue || "")} {phoneEntry?.pastryUnit || ""}</span></p>
-                </div>
-                <p className="text-xs text-muted-foreground mt-2">
-                  Estado comparación telefónico vs hoja:{" "}
-                  <span className={phoneCompareStatus === "Coincide" ? "text-emerald-600 font-medium" : phoneCompareStatus === "No coincide" ? "text-destructive font-medium" : ""}>
-                    {phoneCompareStatus}
-                  </span>
+                <p className="-mt-1 text-[11px] text-muted-foreground">
+                  Referencia unidad encuesta (BE): {showValue(selected.flourUnitBE || "")} · Columnas hoja: M / N / O y levaduras R–AG
                 </p>
-              </div>
 
-              <div className="grid sm:grid-cols-2 gap-3">
-                <div className="rounded-lg border p-3">
-                  <p className="text-xs text-muted-foreground">Total Cant Correctas</p>
-                  <p className={`text-sm font-medium ${getRule1Status(flourTotalText, bakeryQtyText, pastryQtyText, selected.flourUnitBE) === "Falla" ? "text-destructive" : ""}`}>
-                    {getRule1Status(flourTotalText, bakeryQtyText, pastryQtyText, selected.flourUnitBE)}
-                  </p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <CantidadesCard
+                    title="Harina total"
+                    num={flourNum}
+                    unit={flourUnit}
+                    onNumChange={setFlourNum}
+                    onUnitChange={setFlourUnit}
+                    kg={flourCard.kg}
+                    parseStatus={flourCard.status}
+                    lineStatus={flourLine}
+                    footerHint={rule1 !== "Sin dato" ? "Debe alinearse con panadería + pastelería (regla M ≈ N + O)." : undefined}
+                  />
+                  <CantidadesCard
+                    title="Panadería"
+                    num={bakeryNum}
+                    unit={bakeryUnit}
+                    onNumChange={setBakeryNum}
+                    onUnitChange={setBakeryUnit}
+                    kg={bakeryCard.kg}
+                    parseStatus={bakeryCard.status}
+                    lineStatus={bakeryLine}
+                  />
+                  <CantidadesCard
+                    title="Pastelería"
+                    num={pastryNum}
+                    unit={pastryUnit}
+                    onNumChange={setPastryNum}
+                    onUnitChange={setPastryUnit}
+                    kg={pastryCard.kg}
+                    parseStatus={pastryCard.status}
+                    lineStatus={pastryLine}
+                  />
                 </div>
-                <div className="rounded-lg border p-3">
-                  <p className="text-xs text-muted-foreground">Criterios (Contenido)</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Levadura vs Harina:{" "}
-                    <span className={yeastQualityStatus === "Cumple" ? "text-emerald-600 font-medium" : yeastQualityStatus === "No cumple" ? "text-destructive font-medium" : ""}>
-                      {yeastQualityStatus}
-                    </span>
-                    {" · "}
-                    Precio de compra:{" "}
-                    <span className={yeastPriceStatus === "Cumple" ? "text-emerald-600 font-medium" : yeastPriceStatus === "Falla" ? "text-destructive font-medium" : ""}>
-                      {yeastPriceStatus}
-                    </span>
-                  </p>
-                  <p className="text-[11px] text-muted-foreground mt-1">
-                    Ratio = (Levaduras + Otras×3) / Harina · Rango: 0.5%–5% · Pastelería: No aplica
-                  </p>
-                </div>
-              </div>
 
-              <div className="rounded-lg border p-3 space-y-2">
-                <p className="text-xs text-muted-foreground">Controles de cantidad</p>
-                <p className="text-sm">Cantidad estandarizada (kg): <span className="font-medium">{showValue(selected.flourKgStandardText)}</span></p>
-                <p className="text-sm">Control 1: <span className="font-medium">{showValue(selected.controlCGText)}</span></p>
-                <p className="text-sm">Control 2: <span className="font-medium">{showValue(selected.controlCHText)}</span></p>
-              </div>
-
-              <div className="rounded-lg border p-3">
-                <p className="text-sm font-medium mb-2 flex items-center gap-2"><ImageIcon className="w-4 h-4" /> Foto de fachada</p>
-                {photoUrl ? (
-                  <div className="space-y-2">
-                    <img
-                      src={photoUrl}
-                      alt={`Fachada de ${selected.name}`}
-                      className="w-full h-72 object-contain rounded-md border bg-muted/20 cursor-zoom-in"
-                      loading="lazy"
-                      referrerPolicy="no-referrer"
-                      onClick={() => setPhotoZoomOpen(true)}
-                      onError={() => {
-                        if (photoIdx < photoCandidates.length - 1) setPhotoIdx((v) => v + 1);
-                        else setPhotoIdx(photoCandidates.length);
-                      }}
+                <div className="mt-5 grid gap-5 lg:grid-cols-5">
+                  <div className="space-y-4 lg:col-span-3">
+                    <LevadurasGrid
+                      values={yeastValues}
+                      onChange={handleYeastCellChange}
+                      getKgFromText={toKgFromYeastText}
+                      flourKg={flourKg ?? null}
+                      yeastTotalWeightedKg={yeastTotalKg}
                     />
-                    <Button type="button" variant="outline" size="sm" onClick={() => setPhotoZoomOpen(true)}>
-                      Ampliar foto
-                    </Button>
+                    <div className="rounded-xl border border-border/80 bg-card/50 p-4 text-sm shadow-sm">
+                      <p className="text-xs font-medium text-muted-foreground">Telefónico vs hoja</p>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                        <p>
+                          Total:{" "}
+                          <span className="font-medium tabular-nums">
+                            {showValue(phoneEntry?.totalValue || "")} {phoneEntry?.totalUnit || ""}
+                          </span>
+                        </p>
+                        <p>
+                          Panadería:{" "}
+                          <span className="font-medium tabular-nums">
+                            {showValue(phoneEntry?.bakeryValue || "")} {phoneEntry?.bakeryUnit || ""}
+                          </span>
+                        </p>
+                        <p>
+                          Pastelería:{" "}
+                          <span className="font-medium tabular-nums">
+                            {showValue(phoneEntry?.pastryValue || "")} {phoneEntry?.pastryUnit || ""}
+                          </span>
+                        </p>
+                      </div>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Comparación (±15%):{" "}
+                        <span
+                          className={
+                            phoneCompareStatus === "Coincide"
+                              ? "font-medium text-emerald-600"
+                              : phoneCompareStatus === "No coincide"
+                                ? "font-medium text-destructive"
+                                : ""
+                          }
+                        >
+                          {phoneCompareStatus}
+                        </span>
+                      </p>
+                    </div>
                   </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">No se pudo cargar la foto con la URL proporcionada.</p>
-                )}
-                <p className="text-xs text-muted-foreground break-all mt-2">{selected.facadePhotoUrl || "—"}</p>
+                  <div className="lg:col-span-2">
+                    <ValidationPanel
+                      ratio={ratioDecimal}
+                      ratioRuleLabel={ratioRuleLabel}
+                      yeastQualityDetail={yeastQualityDetail}
+                      yeastQualityOk={yeastQualityOk}
+                      yeastQualityWarn={yeastQualityWarn}
+                      priceDetail={priceDetail}
+                      priceOk={priceOk}
+                      priceWarn={priceWarn}
+                      consistenciaDetail={consistenciaDetail}
+                      consistenciaOk={consistenciaOk}
+                      consistenciaWarn={consistenciaWarn}
+                      dbDetail={dbDetail}
+                      dbOk={dbOk}
+                      dbWarn={dbWarn}
+                      phoneCompareDetail={phoneCompareDetail}
+                      phoneCompareOk={phoneCompareOk}
+                      phoneCompareWarn={phoneCompareWarn}
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                  <div className="rounded-xl border border-border/80 bg-muted/5 p-4 text-sm">
+                    <p className="text-xs font-medium text-muted-foreground">Controles de cantidad (hoja)</p>
+                    <p className="mt-2">
+                      CD estandarizado: <span className="font-medium tabular-nums">{showValue(selected.flourKgStandardText)}</span>
+                    </p>
+                    <p className="mt-1">
+                      Control CG: <span className="font-medium tabular-nums">{showValue(selected.controlCGText)}</span>
+                    </p>
+                    <p className="mt-1">
+                      Control CH: <span className="font-medium tabular-nums">{showValue(selected.controlCHText)}</span>
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-border/80 bg-card p-4">
+                    <p className="text-sm font-medium mb-2 flex items-center gap-2">
+                      <ImageIcon className="size-4 opacity-70" /> Fachada
+                    </p>
+                    {photoUrl ? (
+                      <div className="space-y-2">
+                        <button
+                          type="button"
+                          className="block w-full overflow-hidden rounded-lg border bg-muted/15"
+                          onClick={() => setPhotoZoomOpen(true)}
+                        >
+                          <img
+                            src={photoUrl}
+                            alt={`Fachada de ${selected.name}`}
+                            className="mx-auto max-h-48 w-full object-contain"
+                            loading="lazy"
+                            referrerPolicy="no-referrer"
+                            onError={() => {
+                              if (photoIdx < photoCandidates.length - 1) setPhotoIdx((v) => v + 1);
+                              else setPhotoIdx(photoCandidates.length);
+                            }}
+                          />
+                        </button>
+                        <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => setPhotoZoomOpen(true)}>
+                          Ampliar foto
+                        </Button>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Sin foto disponible.</p>
+                    )}
+                    <p className="mt-2 break-all text-[10px] text-muted-foreground">{selected.facadePhotoUrl || "—"}</p>
+                  </div>
+                </div>
               </div>
 
-              <div className="flex items-center gap-2 text-sm">
-                {combinedStatus === "Cumple" ? (
-                  <span className="inline-flex items-center gap-1 text-emerald-600"><CheckCircle2 className="w-4 h-4" /> Cumple validaciones</span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 text-destructive"><AlertCircle className="w-4 h-4" /> Revisar datos</span>
-                )}
+              <div className="absolute bottom-0 left-0 right-0 border-t border-border/80 bg-background/90 px-4 py-3 shadow-[0_-8px_30px_rgba(0,0,0,0.06)] backdrop-blur-md supports-[backdrop-filter]:bg-background/75">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                  <span className="transition-opacity duration-300">
+                    {sheetSyncState === "saving"
+                      ? "Sincronizando cantidades y levaduras con Google Sheets…"
+                      : sheetSyncState === "saved"
+                        ? "Cambios guardados en Sheets y en este dispositivo."
+                        : sheetSyncState === "error"
+                          ? "No se pudo escribir en Sheets; revisa conexión o vuelve a editar."
+                          : "Los cambios se guardan solos unos segundos después de editar."}
+                  </span>
+                  <span className="font-mono text-[10px] opacity-70" title="Resumen levadura ponderada">
+                    Lev.Σ ≈ {yeastTotalKg.toFixed(2)} kg
+                    {ratioDecimal !== null && yeastQualityStatus !== "No aplica"
+                      ? ` · ratio ${ratioDecimal.toFixed(4)}`
+                      : ""}
+                  </span>
+                </div>
               </div>
-            </div>
+            </TooltipProvider>
           )}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={kgInfoOpen} onOpenChange={setKgInfoOpen}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>Guía rápida de kg y rangos de levadura</DialogTitle>
-            <p className="text-xs text-muted-foreground">
-              Tabla de referencia tipo negocio (como la guía compartida) y estimación con tus datos cargados.
-            </p>
-          </DialogHeader>
-          <div className="space-y-3 text-sm">
-            <div className="rounded-md border p-3 bg-muted/20">
-              <p>Tipo detectado: <span className="font-medium capitalize">{productionType === "mixto" ? "Panadería + pastelería" : productionType}</span></p>
-              <p>Harina total estimada: <span className="font-medium">{flourKg === null ? "Sin dato" : `${flourKg.toFixed(2)} kg`}</span></p>
-              <p>
-                Levadura total estimada (R+S+T+U):{" "}
-                <span className="font-medium">{yeastTotalKg.toFixed(2)} kg</span>
-                {yeastPctEstimate === null ? "" : ` · ${yeastPctEstimate.toFixed(2)}% sobre harina`}
-              </p>
-              <p className="text-xs mt-1">
-                Estado rango:{" "}
-                <span className={yeastInRange === null ? "" : yeastInRange ? "text-emerald-600 font-medium" : "text-destructive font-medium"}>
-                  {yeastInRange === null ? "Sin dato" : yeastInRange ? "Dentro de rango" : "Fuera de rango"}
-                </span>
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Rango normal detectado: {(yeastRange.freshMinPct * 100).toFixed(1)}% - {(yeastRange.freshMaxPct * 100).toFixed(1)}% (fresca)
-              </p>
-            </div>
-            <div className="overflow-auto rounded-md border">
-              <table className="w-full text-xs">
-                <thead className="bg-muted/30">
-                  <tr>
-                    <th className="text-left p-2">Tipo de negocio</th>
-                    <th className="text-left p-2">Harina semanal</th>
-                    <th className="text-left p-2">Bultos (50 kg)</th>
-                    <th className="text-left p-2">Tipo producción</th>
-                    <th className="text-left p-2">Levadura % normal</th>
-                    <th className="text-left p-2">Levadura kg estimada</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {([
-                    ["Pequeña (solo pan)", 200, 800, "panaderia", "Panadería"],
-                    ["Pequeña mixta", 200, 800, "mixto", "Pan + pastelería"],
-                    ["Pequeña (solo pastelería)", 200, 800, "pasteleria", "Pastelería"],
-                  ] as const).map(([businessLabel, flourMin, flourMax, key, prodLabel]) => {
-                    const r = YEAST_RANGES[key];
-                    const minKg = flourMin * r.freshMinPct;
-                    const maxKg = flourMax * r.freshMaxPct;
-                    return (
-                      <tr key={businessLabel} className="border-t">
-                        <td className="p-2">{businessLabel}</td>
-                        <td className="p-2">{flourMin} - {flourMax} kg</td>
-                        <td className="p-2">{Math.round(flourMin / 50)} - {Math.round(flourMax / 50)}</td>
-                        <td className="p-2">{prodLabel}</td>
-                        <td className="p-2">{(r.freshMinPct * 100).toFixed(1)}% - {(r.freshMaxPct * 100).toFixed(1)}%</td>
-                        <td className="p-2">{minKg.toFixed(1)} - {maxKg.toFixed(1)} kg</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
         </DialogContent>
       </Dialog>
 
