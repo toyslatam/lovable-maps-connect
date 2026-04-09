@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { AlertCircle, CheckCircle2, Image as ImageIcon, Info, Search, X } from "lucide-react";
+import { AlertCircle, CheckCircle2, Image as ImageIcon, Info, Search, SlidersHorizontal, X } from "lucide-react";
 import { toast } from "sonner";
 import { getEstablishmentKey, loadPhoneContentMap, phoneTextToKg } from "@/lib/phoneContent";
 import { PHONE_STATUS_OPTIONS } from "@/lib/statusOptions";
@@ -186,6 +186,7 @@ export default function ContentModule() {
   const [surveyorSearch, setSurveyorSearch] = useState("");
   const [establishmentQuery, setEstablishmentQuery] = useState("");
   const [brStateFilter, setBrStateFilter] = useState("__all__");
+  const [phoneStateFilter, setPhoneStateFilter] = useState("__all__");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -242,6 +243,25 @@ export default function ContentModule() {
     return [...official, ...extras];
   }, [establishments]);
 
+  const phoneStates = useMemo(() => {
+    const official = [...PHONE_STATUS_OPTIONS];
+    const officialNorm = new Set(official.map((s) => normalizeText(s)));
+    const extras: string[] = [];
+    const extrasNorm = new Set<string>();
+    establishments.forEach((r) => {
+      const raw = (r.phoneStatus || "").trim();
+      if (!raw) return;
+      const n = normalizeText(raw);
+      if (!n) return;
+      if (officialNorm.has(n)) return;
+      if (extrasNorm.has(n)) return;
+      extrasNorm.add(n);
+      extras.push(raw);
+    });
+    extras.sort((a, b) => a.localeCompare(b, "es"));
+    return [...official, ...extras];
+  }, [establishments]);
+
   const filteredRows = useMemo(() => {
     const q = establishmentQuery.trim().toLowerCase();
     return establishments.filter((r) => {
@@ -249,15 +269,28 @@ export default function ContentModule() {
       if (q && !(r.name || "").toLowerCase().includes(q)) return false;
       if (brStateFilter !== "__all__") {
         const rowState = normalizeText((r.contentStateBR || "").trim());
-        const filterState = normalizeText(brStateFilter);
-        if (rowState !== filterState) return false;
+        if (brStateFilter === "__empty__") {
+          if (rowState) return false;
+        } else {
+          const filterState = normalizeText(brStateFilter);
+          if (rowState !== filterState) return false;
+        }
+      }
+      if (phoneStateFilter !== "__all__") {
+        const rowState = normalizeText((r.phoneStatus || "").trim());
+        if (phoneStateFilter === "__empty__") {
+          if (rowState) return false;
+        } else {
+          const filterState = normalizeText(phoneStateFilter);
+          if (rowState !== filterState) return false;
+        }
       }
       const d = normalizeDateOnly(r.recordDate);
       if (dateFrom && (!d || d < dateFrom)) return false;
       if (dateTo && (!d || d > dateTo)) return false;
       return true;
     });
-  }, [establishments, selectedSurveyors, establishmentQuery, brStateFilter, dateFrom, dateTo]);
+  }, [establishments, selectedSurveyors, establishmentQuery, brStateFilter, phoneStateFilter, dateFrom, dateTo]);
 
   const visibleSurveyors = useMemo(() => {
     const q = normalizeText(surveyorSearch);
@@ -603,64 +636,101 @@ export default function ContentModule() {
         <p className="text-sm text-muted-foreground mt-1">Validación de cantidades por encuestador y establecimiento.</p>
       </div>
 
-      <div className="grid lg:grid-cols-5 gap-3 reveal-up reveal-up-delay-1">
-        <div className="space-y-2">
-          <Label>Filtrar encuestador</Label>
-          <Button type="button" variant="outline" className="h-10 w-full justify-between font-normal" onClick={() => setSurveyorPickerOpen(true)}>
-            <span className="truncate">
-              {selectedSurveyors.length === 0
-                ? "Todos"
-                : selectedSurveyors.length === 1
-                  ? selectedSurveyors[0]
-                  : `${selectedSurveyors.length} encuestadores`}
-            </span>
-            <Search className="w-4 h-4 text-muted-foreground" />
-          </Button>
-          {selectedSurveyors.length > 0 ? (
-            <div className="flex flex-wrap gap-1">
-              {selectedSurveyors.slice(0, 3).map((s) => (
-                <span key={s} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted text-xs">
-                  {s}
-                  <button type="button" onClick={() => setSelectedSurveyors((prev) => prev.filter((x) => x !== s))}>
-                    <X className="w-3 h-3" />
-                  </button>
+      <div className="rounded-xl border bg-card/80 shadow-sm reveal-up reveal-up-delay-1 overflow-hidden">
+        <div className="flex flex-wrap items-center gap-3 border-b bg-muted/30 px-4 py-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <SlidersHorizontal className="h-4 w-4" aria-hidden />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold">Filtros</p>
+            <p className="text-xs text-muted-foreground">Encuestador, establecimiento, fechas y estados (misma lógica que antes).</p>
+          </div>
+        </div>
+        <div className="space-y-5 p-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-12 lg:items-end">
+            <div className="space-y-2 sm:col-span-2 lg:col-span-4">
+              <Label className="text-xs font-medium text-muted-foreground">Encuestador</Label>
+              <Button type="button" variant="outline" className="h-10 w-full justify-between font-normal shadow-none" onClick={() => setSurveyorPickerOpen(true)}>
+                <span className="truncate text-left">
+                  {selectedSurveyors.length === 0
+                    ? "Todos"
+                    : selectedSurveyors.length === 1
+                      ? selectedSurveyors[0]
+                      : `${selectedSurveyors.length} encuestadores`}
                 </span>
-              ))}
-              {selectedSurveyors.length > 3 ? <span className="text-xs text-muted-foreground">+{selectedSurveyors.length - 3}</span> : null}
+                <Search className="w-4 h-4 shrink-0 text-muted-foreground" />
+              </Button>
+              {selectedSurveyors.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5 pt-0.5">
+                  {selectedSurveyors.slice(0, 4).map((s) => (
+                    <span key={s} className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-[11px]">
+                      <span className="max-w-[140px] truncate">{s}</span>
+                      <button type="button" className="rounded-full p-0.5 hover:bg-muted" aria-label={`Quitar ${s}`} onClick={() => setSelectedSurveyors((prev) => prev.filter((x) => x !== s))}>
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ))}
+                  {selectedSurveyors.length > 4 ? (
+                    <span className="self-center text-[11px] text-muted-foreground">+{selectedSurveyors.length - 4}</span>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
-          ) : null}
-        </div>
-        <div className="space-y-2">
-          <Label>Búsqueda establecimiento</Label>
-          <Input
-            value={establishmentQuery}
-            onChange={(e) => setEstablishmentQuery(e.target.value)}
-            placeholder="Escribe nombre del establecimiento..."
-            className="h-10"
-          />
-        </div>
-        <div className="space-y-2">
-          <Label>Fecha desde</Label>
-          <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="h-10" />
-        </div>
-        <div className="space-y-2">
-          <Label>Fecha hasta</Label>
-          <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="h-10" />
-        </div>
-        <div className="space-y-2">
-          <Label>Estado (BR)</Label>
-          <Select value={brStateFilter} onValueChange={setBrStateFilter}>
-            <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all__">Todos</SelectItem>
-              {brStates.map((s) => (
-                <SelectItem key={s} value={s}>{s}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            <div className="space-y-2 sm:col-span-2 lg:col-span-4">
+              <Label className="text-xs font-medium text-muted-foreground" htmlFor="content-search-est">Establecimiento</Label>
+              <Input
+                id="content-search-est"
+                value={establishmentQuery}
+                onChange={(e) => setEstablishmentQuery(e.target.value)}
+                placeholder="Nombre del establecimiento…"
+                className="h-10"
+              />
+            </div>
+            <div className="space-y-2 lg:col-span-2">
+              <Label className="text-xs font-medium text-muted-foreground" htmlFor="content-date-from">Fecha desde</Label>
+              <Input id="content-date-from" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="h-10" />
+            </div>
+            <div className="space-y-2 lg:col-span-2">
+              <Label className="text-xs font-medium text-muted-foreground" htmlFor="content-date-to">Fecha hasta</Label>
+              <Input id="content-date-to" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="h-10" />
+            </div>
+          </div>
+
+          <div className="rounded-lg border bg-muted/20 p-3 sm:p-4">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Estados</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label className="text-xs font-medium">Estado contenido</Label>
+                <Select value={brStateFilter} onValueChange={setBrStateFilter}>
+                  <SelectTrigger className="h-10 bg-background"><SelectValue placeholder="Seleccionar" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">Todos</SelectItem>
+                    <SelectItem value="__empty__">Sin dato</SelectItem>
+                    {brStates.map((s) => (
+                      <SelectItem key={s} value={s}>{s}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs font-medium">Estado telefónico</Label>
+                <Select value={phoneStateFilter} onValueChange={setPhoneStateFilter}>
+                  <SelectTrigger className="h-10 bg-background"><SelectValue placeholder="Seleccionar" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">Todos</SelectItem>
+                    <SelectItem value="__empty__">Sin dato</SelectItem>
+                    {phoneStates.map((s) => (
+                      <SelectItem key={s} value={s}>{s}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+
+          <p className="text-xs text-muted-foreground">El filtro de fechas usa la columna A (Respuesta iniciada), tomando solo día/mes/año.</p>
         </div>
       </div>
-      <p className="text-xs text-muted-foreground -mt-2">El filtro de fechas usa la columna A (Respuesta iniciada), tomando solo día/mes/año.</p>
 
       <div className="space-y-3">
         {grouped.map((g) => (
