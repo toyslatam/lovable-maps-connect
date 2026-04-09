@@ -40,6 +40,26 @@ export interface Establishment {
   levasafText?: string;
   /** Otras levaduras (columna T, texto libre). */
   otherYeastText?: string;
+  /** Angel (texto libre). */
+  yeastAngelText?: string;
+  /** El Panificador (texto libre). */
+  yeastPanificadorText?: string;
+  /** Fermipan (texto libre). */
+  yeastFermipanText?: string;
+  /** Gloripan (texto libre). */
+  yeastGloripanText?: string;
+  /** Instaferm (texto libre). */
+  yeastInstafermText?: string;
+  /** Instant Succ (texto libre). */
+  yeastInstantSuccText?: string;
+  /** Mauripan (texto libre). */
+  yeastMauripanText?: string;
+  /** SAF Instant (texto libre). */
+  yeastSafInstantText?: string;
+  /** Santillana (texto libre). */
+  yeastSantillanaText?: string;
+  /** Otra Marca Seca (texto libre). */
+  yeastOtherDryText?: string;
   /** Cantidad estandarizada en kg (columna CD, si existe en la hoja). */
   flourKgStandardText: string;
   /** Datos de control (columna CG). */

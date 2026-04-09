@@ -68,6 +68,24 @@ function getDcStatus(row: Establishment): "Cumple" | "Falla" | "Sin dato" {
   return (cg !== null && cg > 19500) || (ch !== null && ch > 19500) ? "Falla" : "Cumple";
 }
 
+function getYeastQualityStatus(args: {
+  flourKg: number | null;
+  yeastTotalKg: number;
+  productionType: "panaderia" | "pasteleria" | "mixto";
+}): "Cumple" | "No cumple" | "No aplica" | "Sin dato" {
+  if (args.productionType === "pasteleria") return "No aplica";
+  if (args.flourKg === null || args.flourKg <= 0) return "Sin dato";
+  const ratio = args.yeastTotalKg / args.flourKg;
+  if (!Number.isFinite(ratio)) return "Sin dato";
+  return ratio < 0.005 || ratio > 0.05 ? "No cumple" : "Cumple";
+}
+
+function getYeastPriceStatus(prices: Array<number | null>): "Cumple" | "Falla" | "Sin dato" {
+  const ps = prices.filter((p): p is number => p !== null && Number.isFinite(p));
+  if (ps.length === 0) return "Sin dato";
+  return ps.some((p) => p > 19500) ? "Falla" : "Cumple";
+}
+
 function getRule1Status(flourTotalText: string, bakeryQtyText: string, pastryQtyText: string, fallbackUnit?: string): "Correcta" | "Falla" | "Sin dato" {
   const m = parseQuantityToKg(flourTotalText, fallbackUnit).kg;
   const n = parseQuantityToKg(bakeryQtyText, fallbackUnit).kg;
@@ -180,6 +198,16 @@ export default function ContentModule() {
   const [fleischmanText, setFleischmanText] = useState("");
   const [levasafText, setLevasafText] = useState("");
   const [otherYeastText, setOtherYeastText] = useState("");
+  const [yeastAngelText, setYeastAngelText] = useState("");
+  const [yeastPanificadorText, setYeastPanificadorText] = useState("");
+  const [yeastFermipanText, setYeastFermipanText] = useState("");
+  const [yeastGloripanText, setYeastGloripanText] = useState("");
+  const [yeastInstafermText, setYeastInstafermText] = useState("");
+  const [yeastInstantSuccText, setYeastInstantSuccText] = useState("");
+  const [yeastMauripanText, setYeastMauripanText] = useState("");
+  const [yeastSafInstantText, setYeastSafInstantText] = useState("");
+  const [yeastSantillanaText, setYeastSantillanaText] = useState("");
+  const [yeastOtherDryText, setYeastOtherDryText] = useState("");
   const [savingContentStatus, setSavingContentStatus] = useState(false);
   const [savingContentFields, setSavingContentFields] = useState(false);
   const [kgInfoOpen, setKgInfoOpen] = useState(false);
@@ -193,12 +221,25 @@ export default function ContentModule() {
   }, [establishments]);
 
   const brStates = useMemo(() => {
-    const set = new Set<string>();
+    // Lista "oficial" (como la del desplegable) + extras detectados en la hoja.
+    const official = [...PHONE_STATUS_OPTIONS];
+    const officialNorm = new Set(official.map((s) => normalizeText(s)));
+
+    const extras: string[] = [];
+    const extrasNorm = new Set<string>();
     establishments.forEach((r) => {
-      const v = (r.contentStateBR || "").trim();
-      if (v) set.add(v);
+      const raw = (r.contentStateBR || "").trim();
+      if (!raw) return;
+      const n = normalizeText(raw);
+      if (!n) return;
+      if (officialNorm.has(n)) return;
+      if (extrasNorm.has(n)) return;
+      extrasNorm.add(n);
+      extras.push(raw);
     });
-    return Array.from(set).sort((a, b) => a.localeCompare(b, "es"));
+
+    extras.sort((a, b) => a.localeCompare(b, "es"));
+    return [...official, ...extras];
   }, [establishments]);
 
   const filteredRows = useMemo(() => {
@@ -206,7 +247,11 @@ export default function ContentModule() {
     return establishments.filter((r) => {
       if (selectedSurveyors.length > 0 && !selectedSurveyors.includes(getSurveyor(r))) return false;
       if (q && !(r.name || "").toLowerCase().includes(q)) return false;
-      if (brStateFilter !== "__all__" && (r.contentStateBR || "").trim() !== brStateFilter) return false;
+      if (brStateFilter !== "__all__") {
+        const rowState = normalizeText((r.contentStateBR || "").trim());
+        const filterState = normalizeText(brStateFilter);
+        if (rowState !== filterState) return false;
+      }
       const d = normalizeDateOnly(r.recordDate);
       if (dateFrom && (!d || d < dateFrom)) return false;
       if (dateTo && (!d || d > dateTo)) return false;
@@ -300,15 +345,70 @@ export default function ContentModule() {
   const fleischmanKg = toKgFromYeastText(fleischmanText) ?? 0;
   const levasafKg = toKgFromYeastText(levasafText) ?? 0;
   const otherYeastKg = toKgFromYeastText(otherYeastText) ?? 0;
+  const yeastAngelKg = toKgFromYeastText(yeastAngelText) ?? 0;
+  const yeastPanificadorKg = toKgFromYeastText(yeastPanificadorText) ?? 0;
+  const yeastFermipanKg = toKgFromYeastText(yeastFermipanText) ?? 0;
+  const yeastGloripanKg = toKgFromYeastText(yeastGloripanText) ?? 0;
+  const yeastInstafermKg = toKgFromYeastText(yeastInstafermText) ?? 0;
+  const yeastInstantSuccKg = toKgFromYeastText(yeastInstantSuccText) ?? 0;
+  const yeastMauripanKg = toKgFromYeastText(yeastMauripanText) ?? 0;
+  const yeastSafInstantKg = toKgFromYeastText(yeastSafInstantText) ?? 0;
+  const yeastSantillanaKg = toKgFromYeastText(yeastSantillanaText) ?? 0;
+  const yeastOtherDryKg = toKgFromYeastText(yeastOtherDryText) ?? 0;
   const levapanParsed = parseYeastText(levapanText);
   const fleischmanParsed = parseYeastText(fleischmanText);
   const levasafParsed = parseYeastText(levasafText);
   const otherYeastParsed = parseYeastText(otherYeastText);
-  const yeastTotalKg = levapanKg + fleischmanKg + levasafKg + otherYeastKg;
+  const yeastAngelParsed = parseYeastText(yeastAngelText);
+  const yeastPanificadorParsed = parseYeastText(yeastPanificadorText);
+  const yeastFermipanParsed = parseYeastText(yeastFermipanText);
+  const yeastGloripanParsed = parseYeastText(yeastGloripanText);
+  const yeastInstafermParsed = parseYeastText(yeastInstafermText);
+  const yeastInstantSuccParsed = parseYeastText(yeastInstantSuccText);
+  const yeastMauripanParsed = parseYeastText(yeastMauripanText);
+  const yeastSafInstantParsed = parseYeastText(yeastSafInstantText);
+  const yeastSantillanaParsed = parseYeastText(yeastSantillanaText);
+  const yeastOtherDryParsed = parseYeastText(yeastOtherDryText);
+
+  // Regla: "otras levaduras" se ponderan *3 (aplicado a Otras (fresca) y Otra Marca Seca).
+  const yeastTotalKg = (
+    levapanKg +
+    fleischmanKg +
+    levasafKg +
+    (otherYeastKg * 3) +
+    yeastAngelKg +
+    yeastPanificadorKg +
+    yeastFermipanKg +
+    yeastGloripanKg +
+    yeastInstafermKg +
+    yeastInstantSuccKg +
+    yeastMauripanKg +
+    yeastSafInstantKg +
+    yeastSantillanaKg +
+    (yeastOtherDryKg * 3)
+  );
   const yeastPctEstimate = flourKg && flourKg > 0 ? (yeastTotalKg / flourKg) * 100 : null;
   const yeastInRange = yeastPctEstimate === null
     ? null
     : yeastPctEstimate >= (yeastRange.freshMinPct * 100) && yeastPctEstimate <= (yeastRange.freshMaxPct * 100);
+
+  const yeastQualityStatus = getYeastQualityStatus({ flourKg: flourKg ?? null, yeastTotalKg, productionType });
+  const yeastPriceStatus = getYeastPriceStatus([
+    levapanParsed.price,
+    fleischmanParsed.price,
+    levasafParsed.price,
+    otherYeastParsed.price,
+    yeastAngelParsed.price,
+    yeastPanificadorParsed.price,
+    yeastFermipanParsed.price,
+    yeastGloripanParsed.price,
+    yeastInstafermParsed.price,
+    yeastInstantSuccParsed.price,
+    yeastMauripanParsed.price,
+    yeastSafInstantParsed.price,
+    yeastSantillanaParsed.price,
+    yeastOtherDryParsed.price,
+  ]);
 
   useEffect(() => {
     setContentStatus(selected?.contentStatus || "");
@@ -319,6 +419,16 @@ export default function ContentModule() {
     setFleischmanText(selected?.fleischmanText || "");
     setLevasafText(selected?.levasafText || "");
     setOtherYeastText(selected?.otherYeastText || "");
+    setYeastAngelText(selected?.yeastAngelText || "");
+    setYeastPanificadorText(selected?.yeastPanificadorText || "");
+    setYeastFermipanText(selected?.yeastFermipanText || "");
+    setYeastGloripanText(selected?.yeastGloripanText || "");
+    setYeastInstafermText(selected?.yeastInstafermText || "");
+    setYeastInstantSuccText(selected?.yeastInstantSuccText || "");
+    setYeastMauripanText(selected?.yeastMauripanText || "");
+    setYeastSafInstantText(selected?.yeastSafInstantText || "");
+    setYeastSantillanaText(selected?.yeastSantillanaText || "");
+    setYeastOtherDryText(selected?.yeastOtherDryText || "");
   }, [
     selected?.id,
     selected?.contentStatus,
@@ -329,6 +439,16 @@ export default function ContentModule() {
     selected?.fleischmanText,
     selected?.levasafText,
     selected?.otherYeastText,
+    selected?.yeastAngelText,
+    selected?.yeastPanificadorText,
+    selected?.yeastFermipanText,
+    selected?.yeastGloripanText,
+    selected?.yeastInstafermText,
+    selected?.yeastInstantSuccText,
+    selected?.yeastMauripanText,
+    selected?.yeastSafInstantText,
+    selected?.yeastSantillanaText,
+    selected?.yeastOtherDryText,
   ]);
 
   useEffect(() => {
@@ -676,32 +796,87 @@ export default function ContentModule() {
                 </div>
                 <div className="grid sm:grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Levapan (R)</Label>
+                    <Label className="text-xs text-muted-foreground">Levapan</Label>
                     <Input value={levapanText} onChange={(e) => setLevapanText(e.target.value)} className="h-9" />
                     <p className="text-[11px] text-muted-foreground">
                       Cantidad: {levapanParsed.quantity ?? "Sin dato"} · Precio: {levapanParsed.price ?? "Sin dato"}
                     </p>
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Fleischman (S)</Label>
+                    <Label className="text-xs text-muted-foreground">Fleischman</Label>
                     <Input value={fleischmanText} onChange={(e) => setFleischmanText(e.target.value)} className="h-9" />
                     <p className="text-[11px] text-muted-foreground">
                       Cantidad: {fleischmanParsed.quantity ?? "Sin dato"} · Precio: {fleischmanParsed.price ?? "Sin dato"}
                     </p>
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Levasaf (T)</Label>
+                    <Label className="text-xs text-muted-foreground">Levasaf</Label>
                     <Input value={levasafText} onChange={(e) => setLevasafText(e.target.value)} className="h-9" />
                     <p className="text-[11px] text-muted-foreground">
                       Cantidad: {levasafParsed.quantity ?? "Sin dato"} · Precio: {levasafParsed.price ?? "Sin dato"}
                     </p>
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Otra marca fresca (U)</Label>
+                    <Label className="text-xs text-muted-foreground">Otra Marca Fresca</Label>
                     <Input value={otherYeastText} onChange={(e) => setOtherYeastText(e.target.value)} className="h-9" />
                     <p className="text-[11px] text-muted-foreground">
                       Cantidad: {otherYeastParsed.quantity ?? "Sin dato"} · Precio: {otherYeastParsed.price ?? "Sin dato"}
                     </p>
+                  </div>
+                </div>
+                <div className="rounded-md border bg-muted/20 p-2">
+                  <p className="text-[11px] text-muted-foreground font-medium mb-2">Levaduras (secas / marcas)</p>
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Angel</Label>
+                      <Input value={yeastAngelText} onChange={(e) => setYeastAngelText(e.target.value)} className="h-9" />
+                      <p className="text-[11px] text-muted-foreground">Cantidad: {yeastAngelParsed.quantity ?? "Sin dato"} · Precio: {yeastAngelParsed.price ?? "Sin dato"}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">El Panificador</Label>
+                      <Input value={yeastPanificadorText} onChange={(e) => setYeastPanificadorText(e.target.value)} className="h-9" />
+                      <p className="text-[11px] text-muted-foreground">Cantidad: {yeastPanificadorParsed.quantity ?? "Sin dato"} · Precio: {yeastPanificadorParsed.price ?? "Sin dato"}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Fermipan</Label>
+                      <Input value={yeastFermipanText} onChange={(e) => setYeastFermipanText(e.target.value)} className="h-9" />
+                      <p className="text-[11px] text-muted-foreground">Cantidad: {yeastFermipanParsed.quantity ?? "Sin dato"} · Precio: {yeastFermipanParsed.price ?? "Sin dato"}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Gloripan</Label>
+                      <Input value={yeastGloripanText} onChange={(e) => setYeastGloripanText(e.target.value)} className="h-9" />
+                      <p className="text-[11px] text-muted-foreground">Cantidad: {yeastGloripanParsed.quantity ?? "Sin dato"} · Precio: {yeastGloripanParsed.price ?? "Sin dato"}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Instaferm</Label>
+                      <Input value={yeastInstafermText} onChange={(e) => setYeastInstafermText(e.target.value)} className="h-9" />
+                      <p className="text-[11px] text-muted-foreground">Cantidad: {yeastInstafermParsed.quantity ?? "Sin dato"} · Precio: {yeastInstafermParsed.price ?? "Sin dato"}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Instant Succ</Label>
+                      <Input value={yeastInstantSuccText} onChange={(e) => setYeastInstantSuccText(e.target.value)} className="h-9" />
+                      <p className="text-[11px] text-muted-foreground">Cantidad: {yeastInstantSuccParsed.quantity ?? "Sin dato"} · Precio: {yeastInstantSuccParsed.price ?? "Sin dato"}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Mauripan</Label>
+                      <Input value={yeastMauripanText} onChange={(e) => setYeastMauripanText(e.target.value)} className="h-9" />
+                      <p className="text-[11px] text-muted-foreground">Cantidad: {yeastMauripanParsed.quantity ?? "Sin dato"} · Precio: {yeastMauripanParsed.price ?? "Sin dato"}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">SAF Instant</Label>
+                      <Input value={yeastSafInstantText} onChange={(e) => setYeastSafInstantText(e.target.value)} className="h-9" />
+                      <p className="text-[11px] text-muted-foreground">Cantidad: {yeastSafInstantParsed.quantity ?? "Sin dato"} · Precio: {yeastSafInstantParsed.price ?? "Sin dato"}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Santillana</Label>
+                      <Input value={yeastSantillanaText} onChange={(e) => setYeastSantillanaText(e.target.value)} className="h-9" />
+                      <p className="text-[11px] text-muted-foreground">Cantidad: {yeastSantillanaParsed.quantity ?? "Sin dato"} · Precio: {yeastSantillanaParsed.price ?? "Sin dato"}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Otra Marca Seca</Label>
+                      <Input value={yeastOtherDryText} onChange={(e) => setYeastOtherDryText(e.target.value)} className="h-9" />
+                      <p className="text-[11px] text-muted-foreground">Cantidad: {yeastOtherDryParsed.quantity ?? "Sin dato"} · Precio: {yeastOtherDryParsed.price ?? "Sin dato"}</p>
+                    </div>
                   </div>
                 </div>
                 <Button type="button" size="sm" className="h-9" onClick={handleSaveContentFields} disabled={savingContentFields}>
@@ -732,9 +907,21 @@ export default function ContentModule() {
                   </p>
                 </div>
                 <div className="rounded-lg border p-3">
-                  <p className="text-xs text-muted-foreground">Cumple con Criterios</p>
-                  <p className={`text-sm font-medium ${combinedStatus === "Falla" ? "text-destructive" : "text-emerald-600"}`}>{combinedStatus}</p>
-                  <p className="text-xs text-muted-foreground mt-1">Criterio 1: {getDbStatus(selectedForRules)} · Criterio 2: {getDcStatus(selectedForRules)}</p>
+                  <p className="text-xs text-muted-foreground">Criterios (Contenido)</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Levadura vs Harina:{" "}
+                    <span className={yeastQualityStatus === "Cumple" ? "text-emerald-600 font-medium" : yeastQualityStatus === "No cumple" ? "text-destructive font-medium" : ""}>
+                      {yeastQualityStatus}
+                    </span>
+                    {" · "}
+                    Precio de compra:{" "}
+                    <span className={yeastPriceStatus === "Cumple" ? "text-emerald-600 font-medium" : yeastPriceStatus === "Falla" ? "text-destructive font-medium" : ""}>
+                      {yeastPriceStatus}
+                    </span>
+                  </p>
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    Ratio = (Levaduras + Otras×3) / Harina · Rango: 0.5%–5% · Pastelería: No aplica
+                  </p>
                 </div>
               </div>
 

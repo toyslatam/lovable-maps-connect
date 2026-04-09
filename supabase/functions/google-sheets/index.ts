@@ -21,6 +21,17 @@ const COL_LEVAPAN = 17; // R
 const COL_FLEISCHMAN = 18; // S
 const COL_LEVASAF = 19; // T
 const COL_OTHER_YEAST = 20; // U
+// Levaduras secas / marcas (Y..AG)
+const COL_YEAST_ANGEL = 23; // X
+const COL_YEAST_PANIFICADOR = 24; // Y
+const COL_YEAST_FERMIPAN = 25; // Z
+const COL_YEAST_GLORIPAN = 26; // AA
+const COL_YEAST_INSTAFERM = 27; // AB
+const COL_YEAST_INSTANT_SUCC = 28; // AC
+const COL_YEAST_MAURIPAN = 29; // AD
+const COL_YEAST_SAF_INSTANT = 30; // AE
+const COL_YEAST_SANTILLANA = 31; // AF
+const COL_YEAST_OTHER_DRY = 32; // AG
 const COL_LOCALITY = 35; // AJ
 const COL_NAME = 37; // AL
 const COL_ADDRESS = 38; // AM
@@ -61,6 +72,16 @@ interface SheetRow {
   fleischmanText?: string;
   levasafText?: string;
   otherYeastText?: string;
+  yeastAngelText?: string;
+  yeastPanificadorText?: string;
+  yeastFermipanText?: string;
+  yeastGloripanText?: string;
+  yeastInstafermText?: string;
+  yeastInstantSuccText?: string;
+  yeastMauripanText?: string;
+  yeastSafInstantText?: string;
+  yeastSantillanaText?: string;
+  yeastOtherDryText?: string;
   flourKgStandardText: string;
   controlCGText: string;
   controlCHText: string;
@@ -334,6 +355,16 @@ serve(async (req) => {
           fleischmanText: cell(r, COL_FLEISCHMAN),
           levasafText: cell(r, COL_LEVASAF),
           otherYeastText: cell(r, COL_OTHER_YEAST),
+          yeastAngelText: cell(r, COL_YEAST_ANGEL),
+          yeastPanificadorText: cell(r, COL_YEAST_PANIFICADOR),
+          yeastFermipanText: cell(r, COL_YEAST_FERMIPAN),
+          yeastGloripanText: cell(r, COL_YEAST_GLORIPAN),
+          yeastInstafermText: cell(r, COL_YEAST_INSTAFERM),
+          yeastInstantSuccText: cell(r, COL_YEAST_INSTANT_SUCC),
+          yeastMauripanText: cell(r, COL_YEAST_MAURIPAN),
+          yeastSafInstantText: cell(r, COL_YEAST_SAF_INSTANT),
+          yeastSantillanaText: cell(r, COL_YEAST_SANTILLANA),
+          yeastOtherDryText: cell(r, COL_YEAST_OTHER_DRY),
           name: cell(r, COL_NAME),
           city: cell(r, COL_CITY),
           contentStatus: cell(r, COL_CONTENT_STATUS),
