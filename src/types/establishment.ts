@@ -20,6 +20,8 @@ export interface Establishment {
   localizedBy: string;
   /** Estado contenido (columna BN en Sheets). */
   contentStatus: string;
+  /** Estado BR para filtros de contenido. */
+  contentStateBR?: string;
   /** Estado telefónico (columna BS en Sheets). */
   phoneStatus: string;
   /** Total de harina reportada (columna M, texto libre). */

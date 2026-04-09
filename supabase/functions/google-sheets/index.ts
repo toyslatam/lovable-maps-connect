@@ -29,6 +29,7 @@ const COL_LAT = 50; // AY
 const COL_LNG = 51; // AZ
 const COL_CITY = 60; // BI
 const COL_CONTENT_STATUS = 65; // BN
+const COL_CONTENT_STATE_BR = 69; // BR
 const COL_PHONE_STATUS = 70; // BS
 const COL_FLOUR_UNIT_BE = 56; // BE
 const COL_FLOUR_KG_STANDARD = 81; // CD
@@ -47,6 +48,7 @@ interface SheetRow {
   name: string;
   city: string;
   contentStatus: string;
+  contentStateBR?: string;
   phoneStatus: string;
   facadePhotoUrl: string;
   localizedStatus: string;
@@ -335,6 +337,7 @@ serve(async (req) => {
           name: cell(r, COL_NAME),
           city: cell(r, COL_CITY),
           contentStatus: cell(r, COL_CONTENT_STATUS),
+          contentStateBR: cell(r, COL_CONTENT_STATE_BR),
           phoneStatus: cell(r, COL_PHONE_STATUS),
           facadePhotoUrl: cell(r, COL_FACADE_PHOTO),
           localizedStatus: cell(r, COL_LOCALIZED_STATUS),

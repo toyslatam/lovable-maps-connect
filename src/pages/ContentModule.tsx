@@ -167,6 +167,7 @@ export default function ContentModule() {
   const [surveyorPickerOpen, setSurveyorPickerOpen] = useState(false);
   const [surveyorSearch, setSurveyorSearch] = useState("");
   const [establishmentQuery, setEstablishmentQuery] = useState("");
+  const [brStateFilter, setBrStateFilter] = useState("__all__");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -191,17 +192,27 @@ export default function ContentModule() {
     return Array.from(set).filter(Boolean).sort((a, b) => a.localeCompare(b, "es"));
   }, [establishments]);
 
+  const brStates = useMemo(() => {
+    const set = new Set<string>();
+    establishments.forEach((r) => {
+      const v = (r.contentStateBR || "").trim();
+      if (v) set.add(v);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "es"));
+  }, [establishments]);
+
   const filteredRows = useMemo(() => {
     const q = establishmentQuery.trim().toLowerCase();
     return establishments.filter((r) => {
       if (selectedSurveyors.length > 0 && !selectedSurveyors.includes(getSurveyor(r))) return false;
       if (q && !(r.name || "").toLowerCase().includes(q)) return false;
+      if (brStateFilter !== "__all__" && (r.contentStateBR || "").trim() !== brStateFilter) return false;
       const d = normalizeDateOnly(r.recordDate);
       if (dateFrom && (!d || d < dateFrom)) return false;
       if (dateTo && (!d || d > dateTo)) return false;
       return true;
     });
-  }, [establishments, selectedSurveyors, establishmentQuery, dateFrom, dateTo]);
+  }, [establishments, selectedSurveyors, establishmentQuery, brStateFilter, dateFrom, dateTo]);
 
   const visibleSurveyors = useMemo(() => {
     const q = normalizeText(surveyorSearch);
@@ -472,7 +483,7 @@ export default function ContentModule() {
         <p className="text-sm text-muted-foreground mt-1">Validación de cantidades por encuestador y establecimiento.</p>
       </div>
 
-      <div className="grid lg:grid-cols-4 gap-3 reveal-up reveal-up-delay-1">
+      <div className="grid lg:grid-cols-5 gap-3 reveal-up reveal-up-delay-1">
         <div className="space-y-2">
           <Label>Filtrar encuestador</Label>
           <Button type="button" variant="outline" className="h-10 w-full justify-between font-normal" onClick={() => setSurveyorPickerOpen(true)}>
@@ -515,6 +526,18 @@ export default function ContentModule() {
         <div className="space-y-2">
           <Label>Fecha hasta</Label>
           <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="h-10" />
+        </div>
+        <div className="space-y-2">
+          <Label>Estado (BR)</Label>
+          <Select value={brStateFilter} onValueChange={setBrStateFilter}>
+            <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">Todos</SelectItem>
+              {brStates.map((s) => (
+                <SelectItem key={s} value={s}>{s}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
       <p className="text-xs text-muted-foreground -mt-2">El filtro de fechas usa la columna A (Respuesta iniciada), tomando solo día/mes/año.</p>
