@@ -126,7 +126,7 @@ const UsersModule = () => {
               <Input
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                placeholder="Agregar usuario"
+                placeholder="Agregar usuarios"
                 className="h-10"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void handleCreate();
