@@ -14,6 +14,27 @@ export type Database = {
   }
   public: {
     Tables: {
+      workspaces: {
+        Row: {
+          id: string
+          slug: string
+          name: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          slug: string
+          name: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          slug?: string
+          name?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
       establishments: {
         Row: {
           id: string
@@ -38,6 +59,30 @@ export type Database = {
           sheet_row_number?: number
           payload?: Json
           updated_at?: string
+        }
+        Relationships: []
+      }
+      user_directory: {
+        Row: {
+          id: string
+          workspace_id: string
+          name: string
+          name_key: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          workspace_id: string
+          name: string
+          name_key: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          workspace_id?: string
+          name?: string
+          name_key?: string
+          created_at?: string
         }
         Relationships: []
       }

@@ -34,9 +34,10 @@ import { formatRecordDateEs } from "@/lib/dateOnly";
 import { toast } from "sonner";
 import { GoogleMap, MarkerF, useJsApiLoader } from "@react-google-maps/api";
 import { invokeGoogleSheets } from "@/lib/invokeGoogleSheets";
+import { fetchDirectoryUsers, upsertDirectoryUser } from "@/lib/supabaseUsers";
+import { resolveWorkspaceId } from "@/lib/supabaseWorkspace";
 
 const FILTER_ALL = "__all__";
-const USER_DIRECTORY_KEY = "geotrack_user_directory_names";
 
 /** Búsqueda flexible: minúsculas y sin marcas diacríticas. */
 function normalizeForSearch(s: string): string {
@@ -50,29 +51,6 @@ const EST_COMBO_INITIAL = 150;
 const EST_COMBO_SEARCH_MAX = 400;
 const USER_COMBO_INITIAL = 50;
 const USER_COMBO_SEARCH_MAX = 200;
-
-function readUserDirectory(): string[] {
-  try {
-    const raw = localStorage.getItem(USER_DIRECTORY_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((v): v is string => typeof v === "string")
-      .map((v) => v.trim())
-      .filter(Boolean);
-  } catch {
-    return [];
-  }
-}
-
-function writeUserDirectory(names: string[]) {
-  try {
-    localStorage.setItem(USER_DIRECTORY_KEY, JSON.stringify(names));
-  } catch {
-    // ignore quota / privacy mode
-  }
-}
 
 type SearchField = "address" | "coords";
 type MapSearchMode = "establishment" | "address" | "coords";
@@ -198,6 +176,9 @@ const LocationModule = () => {
   const [localizedBySearch, setLocalizedBySearch] = useState("");
   const [newUserOpen, setNewUserOpen] = useState(false);
   const [newUserName, setNewUserName] = useState("");
+  const [directoryUsers, setDirectoryUsers] = useState<string[]>([]);
+  const [loadingDirectoryUsers, setLoadingDirectoryUsers] = useState(false);
+  const [workspaceId, setWorkspaceId] = useState<string>("");
   const [savingLocalized, setSavingLocalized] = useState(false);
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
   const { isLoaded: isMapLoaded, loadError: mapApiError } = useJsApiLoader({
@@ -287,7 +268,6 @@ const LocationModule = () => {
   const activeFacadeUrl = facadeCandidates[facadeCandidateIndex] || "";
 
   const localizedByOptions = useMemo(() => {
-    const fromStorage = readUserDirectory();
     const fromData = new Set<string>();
     establishments.forEach((e) => {
       const a = e.localizedBy?.trim();
@@ -295,10 +275,10 @@ const LocationModule = () => {
       const b = e.listaNombre?.trim();
       if (b) fromData.add(b);
     });
-    const all = new Set<string>([...fromStorage, ...Array.from(fromData)]);
+    const all = new Set<string>([...directoryUsers, ...Array.from(fromData)]);
     if (user?.name?.trim()) all.add(user.name.trim());
     return Array.from(all).sort((a, b) => a.localeCompare(b, "es"));
-  }, [establishments, user?.name]);
+  }, [establishments, user?.name, directoryUsers]);
 
   const localizedByCombo = useMemo(() => {
     const q = normalizeForSearch(localizedBySearch.trim());
@@ -375,6 +355,28 @@ const LocationModule = () => {
     setLocalizedBy(selected.localizedBy || user?.name || "");
   }, [selected?.id, selected?.localizedStatus, selected?.localizedBy, user?.name]);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const wid = await resolveWorkspaceId();
+      if (cancelled) return;
+      setWorkspaceId(wid);
+      setLoadingDirectoryUsers(true);
+      const users = await fetchDirectoryUsers(wid);
+      if (cancelled) return;
+      setDirectoryUsers(
+        users
+          .map((u) => u.name?.trim())
+          .filter(Boolean)
+          .sort((a, b) => a.localeCompare(b, "es")),
+      );
+      setLoadingDirectoryUsers(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const handleSelectEstablishment = (id: string) => {
     setSelectedId(id);
   };
@@ -414,13 +416,21 @@ const LocationModule = () => {
       toast.error("Escribe un nombre");
       return;
     }
-    const existing = readUserDirectory();
-    const merged = Array.from(new Set([...existing, name])).sort((a, b) => a.localeCompare(b, "es"));
-    writeUserDirectory(merged);
-    setLocalizedBy(name);
-    setNewUserName("");
-    setNewUserOpen(false);
-    toast.success("Usuario agregado");
+    const nameKey = normalizeForSearch(name);
+    void (async () => {
+      const created = await upsertDirectoryUser(workspaceId, name, nameKey);
+      if (!created) {
+        toast.error("No se pudo guardar el usuario");
+        return;
+      }
+      setDirectoryUsers((prev) =>
+        Array.from(new Set([...prev, created.name.trim()])).sort((a, b) => a.localeCompare(b, "es"))
+      );
+      setLocalizedBy(created.name);
+      setNewUserName("");
+      setNewUserOpen(false);
+      toast.success("Usuario guardado en Supabase");
+    })();
   };
 
   const searchFields: { value: SearchField; label: string }[] = [
@@ -856,6 +866,11 @@ const LocationModule = () => {
                               value={localizedBySearch}
                               onValueChange={setLocalizedBySearch}
                             />
+                            {loadingDirectoryUsers ? (
+                              <p className="px-3 py-2 text-[11px] text-muted-foreground border-b border-border">
+                                Cargando usuarios…
+                              </p>
+                            ) : null}
                             {localizedByCombo.hint && (
                               <p className="px-3 py-2 text-[11px] text-muted-foreground border-b border-border">
                                 {localizedByCombo.hint}
