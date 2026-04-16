@@ -18,7 +18,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { Search, Plus, MapPin, Navigation, Pencil, Trash2, Calendar, ChevronDown } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Command,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Search, Plus, MapPin, Navigation, Pencil, Trash2, Calendar, ChevronDown, ChevronsUpDown, Check } from "lucide-react";
+import { cn } from "@/lib/utils";
 import EstablishmentForm from "@/components/EstablishmentForm";
 import { Establishment } from "@/types/establishment";
 import { formatRecordDateEs } from "@/lib/dateOnly";
@@ -27,6 +36,43 @@ import { GoogleMap, MarkerF, useJsApiLoader } from "@react-google-maps/api";
 import { invokeGoogleSheets } from "@/lib/invokeGoogleSheets";
 
 const FILTER_ALL = "__all__";
+const USER_DIRECTORY_KEY = "geotrack_user_directory_names";
+
+/** Búsqueda flexible: minúsculas y sin marcas diacríticas. */
+function normalizeForSearch(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+const EST_COMBO_INITIAL = 150;
+const EST_COMBO_SEARCH_MAX = 400;
+const USER_COMBO_INITIAL = 50;
+const USER_COMBO_SEARCH_MAX = 200;
+
+function readUserDirectory(): string[] {
+  try {
+    const raw = localStorage.getItem(USER_DIRECTORY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((v): v is string => typeof v === "string")
+      .map((v) => v.trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function writeUserDirectory(names: string[]) {
+  try {
+    localStorage.setItem(USER_DIRECTORY_KEY, JSON.stringify(names));
+  } catch {
+    // ignore quota / privacy mode
+  }
+}
 
 type SearchField = "address" | "coords";
 type MapSearchMode = "establishment" | "address" | "coords";
@@ -133,6 +179,8 @@ const LocationModule = () => {
   const [search, setSearch] = useState("");
   const [searchField, setSearchField] = useState<SearchField>("address");
   const [filterEstName, setFilterEstName] = useState<string>(FILTER_ALL);
+  const [estNameOpen, setEstNameOpen] = useState(false);
+  const [estComboSearch, setEstComboSearch] = useState("");
   const [filterDateFrom, setFilterDateFrom] = useState(""); // YYYY-MM-DD
   const [filterDateTo, setFilterDateTo] = useState(""); // YYYY-MM-DD
   const [showForm, setShowForm] = useState(false);
@@ -141,10 +189,15 @@ const LocationModule = () => {
   const [mapSearchMode, setMapSearchMode] = useState<MapSearchMode>("coords");
   const [mapLoadError, setMapLoadError] = useState(false);
   const [facadeCandidateIndex, setFacadeCandidateIndex] = useState(0);
+  const [facadeViewerOpen, setFacadeViewerOpen] = useState(false);
   const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number }>({ lat: 10.48, lng: -66.87 });
   const [mapZoom, setMapZoom] = useState(14);
   const [localizedStatus, setLocalizedStatus] = useState("");
   const [localizedBy, setLocalizedBy] = useState("");
+  const [localizedByOpen, setLocalizedByOpen] = useState(false);
+  const [localizedBySearch, setLocalizedBySearch] = useState("");
+  const [newUserOpen, setNewUserOpen] = useState(false);
+  const [newUserName, setNewUserName] = useState("");
   const [savingLocalized, setSavingLocalized] = useState(false);
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
   const { isLoaded: isMapLoaded, loadError: mapApiError } = useJsApiLoader({
@@ -161,6 +214,32 @@ const LocationModule = () => {
     });
     return Array.from(names).sort((a, b) => a.localeCompare(b, "es"));
   }, [establishments]);
+
+  const establishmentNameCombo = useMemo(() => {
+    const q = normalizeForSearch(estComboSearch.trim());
+    const total = establishmentNames.length;
+    if (!q) {
+      const items = establishmentNames.slice(0, EST_COMBO_INITIAL);
+      return {
+        items,
+        hint:
+          total > EST_COMBO_INITIAL
+            ? `Mostrando los primeros ${EST_COMBO_INITIAL} de ${total.toLocaleString("es-VE")}. Escribe para buscar en todos.`
+            : null,
+      };
+    }
+    const matched = establishmentNames.filter((n) => normalizeForSearch(n).includes(q));
+    const sliced = matched.slice(0, EST_COMBO_SEARCH_MAX);
+    return {
+      items: sliced,
+      hint:
+        matched.length > EST_COMBO_SEARCH_MAX
+          ? `Mostrando ${EST_COMBO_SEARCH_MAX} de ${matched.length.toLocaleString("es-VE")} coincidencias. Acota la búsqueda si hace falta.`
+          : matched.length === 0
+            ? null
+            : `${matched.length.toLocaleString("es-VE")} coincidencia${matched.length === 1 ? "" : "s"}`,
+    };
+  }, [establishmentNames, estComboSearch]);
 
   const processed = useMemo(() => {
     let list = [...establishments];
@@ -206,6 +285,48 @@ const LocationModule = () => {
     [selected?.facadePhotoUrl]
   );
   const activeFacadeUrl = facadeCandidates[facadeCandidateIndex] || "";
+
+  const localizedByOptions = useMemo(() => {
+    const fromStorage = readUserDirectory();
+    const fromData = new Set<string>();
+    establishments.forEach((e) => {
+      const a = e.localizedBy?.trim();
+      if (a) fromData.add(a);
+      const b = e.listaNombre?.trim();
+      if (b) fromData.add(b);
+    });
+    const all = new Set<string>([...fromStorage, ...Array.from(fromData)]);
+    if (user?.name?.trim()) all.add(user.name.trim());
+    return Array.from(all).sort((a, b) => a.localeCompare(b, "es"));
+  }, [establishments, user?.name]);
+
+  const localizedByCombo = useMemo(() => {
+    const q = normalizeForSearch(localizedBySearch.trim());
+    const total = localizedByOptions.length;
+    if (!q) {
+      return {
+        items: localizedByOptions.slice(0, USER_COMBO_INITIAL),
+        hint:
+          total > USER_COMBO_INITIAL
+            ? `Mostrando los primeros ${USER_COMBO_INITIAL} de ${total.toLocaleString("es-VE")}. Escribe para buscar.`
+            : null,
+        matchedCount: total,
+        query: "",
+      };
+    }
+    const matched = localizedByOptions.filter((n) => normalizeForSearch(n).includes(q));
+    return {
+      items: matched.slice(0, USER_COMBO_SEARCH_MAX),
+      hint:
+        matched.length > USER_COMBO_SEARCH_MAX
+          ? `Mostrando ${USER_COMBO_SEARCH_MAX} de ${matched.length.toLocaleString("es-VE")} coincidencias.`
+          : matched.length === 0
+            ? null
+            : `${matched.length.toLocaleString("es-VE")} coincidencia${matched.length === 1 ? "" : "s"}`,
+      matchedCount: matched.length,
+      query: localizedBySearch.trim(),
+    };
+  }, [localizedByOptions, localizedBySearch]);
 
   const mapSrc = useMemo(() => {
     const target = selected;
@@ -287,6 +408,21 @@ const LocationModule = () => {
     }
   };
 
+  const handleCreateUser = () => {
+    const name = newUserName.trim();
+    if (!name) {
+      toast.error("Escribe un nombre");
+      return;
+    }
+    const existing = readUserDirectory();
+    const merged = Array.from(new Set([...existing, name])).sort((a, b) => a.localeCompare(b, "es"));
+    writeUserDirectory(merged);
+    setLocalizedBy(name);
+    setNewUserName("");
+    setNewUserOpen(false);
+    toast.success("Usuario agregado");
+  };
+
   const searchFields: { value: SearchField; label: string }[] = [
     { value: "address", label: "Dirección" },
     { value: "coords", label: "Coordenadas" },
@@ -363,21 +499,95 @@ const LocationModule = () => {
           <Label htmlFor="filter-est-name" className="text-sm font-medium">
             Nombre del establecimiento
           </Label>
-          <Select value={filterEstName} onValueChange={setFilterEstName}>
-            <SelectTrigger id="filter-est-name" className="h-10 w-full sm:max-w-md">
-              <SelectValue placeholder="Todos los establecimientos" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={FILTER_ALL}>Todos los establecimientos</SelectItem>
-              {establishmentNames.map((name) => (
-                <SelectItem key={name} value={name}>
-                  {name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Popover
+            open={estNameOpen}
+            onOpenChange={(open) => {
+              setEstNameOpen(open);
+              if (!open) setEstComboSearch("");
+            }}
+          >
+            <PopoverTrigger asChild>
+              <Button
+                id="filter-est-name"
+                type="button"
+                variant="outline"
+                role="combobox"
+                aria-expanded={estNameOpen}
+                className="h-10 w-full sm:max-w-md justify-between font-normal px-3"
+              >
+                <span className="truncate text-left">
+                  {filterEstName === FILTER_ALL
+                    ? "Todos los establecimientos"
+                    : filterEstName}
+                </span>
+                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              className="p-0 w-[min(100vw-2rem,28rem)] z-[100]"
+              align="start"
+              sideOffset={4}
+            >
+              <Command shouldFilter={false}>
+                <CommandInput
+                  placeholder="Buscar por nombre, palabra o número…"
+                  value={estComboSearch}
+                  onValueChange={setEstComboSearch}
+                />
+                {establishmentNameCombo.hint && (
+                  <p className="px-3 py-2 text-[11px] text-muted-foreground border-b border-border">
+                    {establishmentNameCombo.hint}
+                  </p>
+                )}
+                <CommandList>
+                  <CommandGroup>
+                    <CommandItem
+                      value={FILTER_ALL}
+                      onSelect={() => {
+                        setFilterEstName(FILTER_ALL);
+                        setEstNameOpen(false);
+                        setEstComboSearch("");
+                      }}
+                    >
+                      <Check
+                        className={cn(
+                          "mr-2 h-4 w-4 shrink-0",
+                          filterEstName === FILTER_ALL ? "opacity-100" : "opacity-0"
+                        )}
+                      />
+                      Todos los establecimientos
+                    </CommandItem>
+                    {establishmentNameCombo.items.map((name) => (
+                      <CommandItem
+                        key={name}
+                        value={name}
+                        onSelect={() => {
+                          setFilterEstName(name);
+                          setEstNameOpen(false);
+                          setEstComboSearch("");
+                        }}
+                      >
+                        <Check
+                          className={cn(
+                            "mr-2 h-4 w-4 shrink-0",
+                            filterEstName === name ? "opacity-100" : "opacity-0"
+                          )}
+                        />
+                        <span className="truncate">{name}</span>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                  {estComboSearch.trim() && establishmentNameCombo.items.length === 0 && (
+                    <p className="px-3 py-3 text-center text-sm text-muted-foreground border-t border-border">
+                      No hay coincidencias. Prueba otra palabra, parte del nombre o el número.
+                    </p>
+                  )}
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
           <p className="text-xs text-muted-foreground">
-            Elige un establecimiento en la lista o deja &quot;Todos&quot; para ver todos. La búsqueda de texto solo aplica a dirección o coordenadas.
+            Abre el listado y escribe para filtrar entre miles de nombres (ignora acentos). La búsqueda inferior sigue aplicando solo a dirección o coordenadas.
           </p>
         </div>
 
@@ -561,18 +771,26 @@ const LocationModule = () => {
                 <div className="rounded-xl border bg-card p-4 text-sm text-muted-foreground space-y-3">
                   <p className="font-medium text-foreground mb-1">Foto de fachada</p>
                   {selected.facadePhotoUrl?.trim() ? (
-                    <img
-                      src={activeFacadeUrl}
-                      alt={`Fachada de ${selected.name}`}
-                      className="w-full h-44 object-contain rounded-lg border bg-muted/20"
-                      loading="lazy"
-                      referrerPolicy="no-referrer"
-                      onError={() => {
-                        if (facadeCandidateIndex < facadeCandidates.length - 1) {
-                          setFacadeCandidateIndex((v) => v + 1);
-                        }
-                      }}
-                    />
+                    <button
+                      type="button"
+                      className="w-full text-left"
+                      onClick={() => setFacadeViewerOpen(true)}
+                      title="Ver foto en grande"
+                    >
+                      <img
+                        src={activeFacadeUrl}
+                        alt={`Fachada de ${selected.name}`}
+                        className="w-full h-44 object-contain rounded-lg border bg-muted/20 hover:opacity-95 transition"
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                        onError={() => {
+                          if (facadeCandidateIndex < facadeCandidates.length - 1) {
+                            setFacadeCandidateIndex((v) => v + 1);
+                          }
+                        }}
+                      />
+                      <span className="mt-2 inline-flex text-xs text-primary">Ver en grande</span>
+                    </button>
                   ) : (
                     <p className="text-xs">Sin foto en la columna AU.</p>
                   )}
@@ -609,22 +827,146 @@ const LocationModule = () => {
                   </div>
                   <div className="space-y-1 sm:col-span-2">
                     <Label className="text-xs text-muted-foreground">Localizado por (BW)</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        value={localizedBy}
-                        onChange={(e) => setLocalizedBy(e.target.value)}
-                        placeholder="Nombre de usuario"
-                        className="h-8 text-xs"
-                      />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-8 text-xs shrink-0"
-                        onClick={() => setLocalizedBy(user?.name || "")}
+                    <div className="flex gap-2 items-center">
+                      <Popover
+                        open={localizedByOpen}
+                        onOpenChange={(open) => {
+                          setLocalizedByOpen(open);
+                          if (!open) setLocalizedBySearch("");
+                        }}
                       >
-                        Mi nombre
-                      </Button>
+                        <PopoverTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            role="combobox"
+                            aria-expanded={localizedByOpen}
+                            className="h-8 text-xs justify-between px-2 w-full"
+                          >
+                            <span className="truncate text-left">
+                              {localizedBy.trim() ? localizedBy : "Selecciona / busca usuario"}
+                            </span>
+                            <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="p-0 w-[min(100vw-2rem,26rem)] z-[120]" align="start">
+                          <Command shouldFilter={false}>
+                            <CommandInput
+                              placeholder="Buscar usuario… (ignora acentos)"
+                              value={localizedBySearch}
+                              onValueChange={setLocalizedBySearch}
+                            />
+                            {localizedByCombo.hint && (
+                              <p className="px-3 py-2 text-[11px] text-muted-foreground border-b border-border">
+                                {localizedByCombo.hint}
+                              </p>
+                            )}
+                            <CommandList>
+                              <CommandGroup>
+                                {user?.name?.trim() ? (
+                                  <CommandItem
+                                    value={`__me__${user.name}`}
+                                    onSelect={() => {
+                                      setLocalizedBy(user.name);
+                                      setLocalizedByOpen(false);
+                                      setLocalizedBySearch("");
+                                    }}
+                                  >
+                                    <Check
+                                      className={cn(
+                                        "mr-2 h-4 w-4 shrink-0",
+                                        localizedBy.trim() === user.name.trim() ? "opacity-100" : "opacity-0",
+                                      )}
+                                    />
+                                    Mi nombre ({user.name})
+                                  </CommandItem>
+                                ) : null}
+
+                                {localizedByCombo.query && localizedByCombo.matchedCount === 0 ? (
+                                  <CommandItem
+                                    value={`__use__${localizedByCombo.query}`}
+                                    onSelect={() => {
+                                      setLocalizedBy(localizedByCombo.query || "");
+                                      setLocalizedByOpen(false);
+                                      setLocalizedBySearch("");
+                                    }}
+                                  >
+                                    <Check className="mr-2 h-4 w-4 shrink-0 opacity-0" />
+                                    Usar: <span className="ml-1 font-medium">{localizedByCombo.query}</span>
+                                  </CommandItem>
+                                ) : null}
+
+                                {localizedByCombo.items.map((name) => (
+                                  <CommandItem
+                                    key={name}
+                                    value={name}
+                                    onSelect={() => {
+                                      setLocalizedBy(name);
+                                      setLocalizedByOpen(false);
+                                      setLocalizedBySearch("");
+                                    }}
+                                  >
+                                    <Check
+                                      className={cn(
+                                        "mr-2 h-4 w-4 shrink-0",
+                                        localizedBy.trim() === name.trim() ? "opacity-100" : "opacity-0",
+                                      )}
+                                    />
+                                    <span className="truncate">{name}</span>
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+
+                              {localizedBySearch.trim() && localizedByCombo.items.length === 0 && (
+                                <p className="px-3 py-3 text-center text-sm text-muted-foreground border-t border-border">
+                                  No hay coincidencias.
+                                </p>
+                              )}
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+
+                      <Popover open={newUserOpen} onOpenChange={setNewUserOpen}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 w-8 p-0 shrink-0"
+                            title="Crear usuario rápido"
+                          >
+                            <Plus className="w-4 h-4" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-72 z-[130]" align="end">
+                          <div className="space-y-2">
+                            <p className="text-sm font-medium">Crear usuario</p>
+                            <Input
+                              value={newUserName}
+                              onChange={(e) => setNewUserName(e.target.value)}
+                              placeholder="Nombre (ej. María López)"
+                              className="h-9"
+                            />
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setNewUserName("");
+                                  setNewUserOpen(false);
+                                }}
+                              >
+                                Cancelar
+                              </Button>
+                              <Button type="button" size="sm" onClick={handleCreateUser}>
+                                Guardar
+                              </Button>
+                            </div>
+                          </div>
+                        </PopoverContent>
+                      </Popover>
                     </div>
                   </div>
                 </div>
@@ -668,6 +1010,67 @@ const LocationModule = () => {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Visor grande de foto de fachada */}
+      <Dialog open={facadeViewerOpen} onOpenChange={setFacadeViewerOpen}>
+        <DialogContent className="max-w-5xl">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-medium truncate">Fachada · {selected?.name || "Establecimiento"}</p>
+                {facadeCandidates.length > 1 ? (
+                  <p className="text-xs text-muted-foreground">
+                    Fuente {facadeCandidateIndex + 1} de {facadeCandidates.length}
+                  </p>
+                ) : null}
+              </div>
+              {facadeCandidates.length > 1 ? (
+                <div className="flex gap-2 shrink-0">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={facadeCandidateIndex <= 0}
+                    onClick={() => setFacadeCandidateIndex((v) => Math.max(0, v - 1))}
+                  >
+                    Anterior
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={facadeCandidateIndex >= facadeCandidates.length - 1}
+                    onClick={() => setFacadeCandidateIndex((v) => Math.min(facadeCandidates.length - 1, v + 1))}
+                  >
+                    Siguiente
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+
+            {selected?.facadePhotoUrl?.trim() ? (
+              <img
+                src={activeFacadeUrl}
+                alt={`Fachada de ${selected.name}`}
+                className="w-full max-h-[75vh] object-contain rounded-lg border bg-muted/20"
+                loading="lazy"
+                referrerPolicy="no-referrer"
+                onError={() => {
+                  if (facadeCandidateIndex < facadeCandidates.length - 1) {
+                    setFacadeCandidateIndex((v) => v + 1);
+                  }
+                }}
+              />
+            ) : (
+              <p className="text-sm text-muted-foreground">Sin foto.</p>
+            )}
+
+            {selected?.facadePhotoUrl ? (
+              <p className="text-xs break-all text-muted-foreground">URL original: {selected.facadePhotoUrl}</p>
+            ) : null}
+          </div>
         </DialogContent>
       </Dialog>
 

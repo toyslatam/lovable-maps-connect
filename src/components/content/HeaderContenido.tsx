@@ -52,6 +52,8 @@ export function HeaderContenido({
   globalStatus,
   kgInfoTooltip,
 }: HeaderContenidoProps) {
+  const statusSelectValue = (contentStatus || "").trim() || "__empty__";
+
   const kind = inferBusinessKind(businessTypeRaw);
   const badge = kindStyles[kind];
   const displayType = kind === "otro" && businessTypeRaw.trim() ? businessTypeRaw.trim() : badge.label;
@@ -80,15 +82,20 @@ export function HeaderContenido({
               <span className="truncate">{displayType}</span>
             </span>
             <span className="text-xs font-medium text-muted-foreground">Estado contenido</span>
-            <Select value={contentStatus || "__empty__"} onValueChange={(v) => onContentStatusChange(v === "__empty__" ? "" : v)}>
+            <Select
+              value={statusSelectValue}
+              onValueChange={(v) => onContentStatusChange(v === "__empty__" ? "" : v)}
+            >
               <SelectTrigger className="h-8 w-[min(100%,220px)] max-w-full text-xs">
                 <SelectValue placeholder="Seleccionar" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__empty__">Sin estado</SelectItem>
-                {contentStatusOptions.map((status) => (
-                  <SelectItem key={status} value={status}>{status}</SelectItem>
-                ))}
+                {contentStatusOptions
+                  .filter((s) => s !== "__empty__")
+                  .map((status) => (
+                    <SelectItem key={status} value={status}>{status}</SelectItem>
+                  ))}
               </SelectContent>
             </Select>
             <Tooltip delayDuration={200}>

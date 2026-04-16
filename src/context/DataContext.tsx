@@ -2,6 +2,12 @@ import { createContext, useContext, useState, ReactNode, useCallback, useEffect,
 import { Establishment } from "@/types/establishment";
 import { toast } from "sonner";
 import { invokeGoogleSheets } from "@/lib/invokeGoogleSheets";
+import {
+  deleteEstablishmentsNotInSheetRows,
+  fetchEstablishmentsFromSupabase,
+  mergeEstablishmentIds,
+  upsertEstablishmentsToSupabase,
+} from "@/lib/supabaseEstablishments";
 
 interface DataContextType {
   establishments: Establishment[];
@@ -28,8 +34,10 @@ interface DataContextType {
 
 const DataContext = createContext<DataContextType | null>(null);
 
+/** Intervalo de sincronización automática en segundo plano (1 h). */
+const HOURLY_SYNC_MS = 60 * 60 * 1000;
+
 export function DataProvider({ children }: { children: ReactNode }) {
-  const HOURLY_SYNC_MS = 60 * 60 * 1000;
   const [establishments, setEstablishments] = useState<Establishment[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [connectedSheetId, setConnectedSheetIdState] = useState<string>(
@@ -45,7 +53,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
     () => localStorage.getItem("geotrack_auto_sync") !== "false"
   );
   const [connectionStatus, setConnectionStatus] = useState<"unknown" | "connected" | "error">("unknown");
-  const didAutoSync = useRef(false);
+  /** Evita import duplicado desde Sheets cuando `connectToSheet` ya marcó esta clave libro|pestaña. */
+  const sheetImportHandledRef = useRef<string>("");
+  const importInFlightRef = useRef<Promise<void> | null>(null);
   const shouldPushChanges = useRef(false);
 
   const setAutoSync = (v: boolean) => {
@@ -135,6 +145,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const importFromSheets = useCallback(async (sheetIdOverride?: string, tabOverride?: string) => {
+    if (importInFlightRef.current) {
+      await importInFlightRef.current;
+      return;
+    }
+
+    const run = async () => {
     const activeSheetId = sheetIdOverride || connectedSheetId;
     if (!activeSheetId) {
       throw new Error("Debes conectar una hoja de Google Sheets");
@@ -217,12 +233,24 @@ export function DataProvider({ children }: { children: ReactNode }) {
         return true;
       });
 
+      let merged = imported;
+      try {
+        const ids = await upsertEstablishmentsToSupabase(activeSheetId, tab, imported);
+        merged = mergeEstablishmentIds(imported, ids);
+        const rowNums = merged
+          .map((r) => r.sheetRowNumber)
+          .filter((n): n is number => typeof n === "number");
+        await deleteEstablishmentsNotInSheetRows(activeSheetId, tab, rowNums);
+      } catch (e) {
+        console.warn("Supabase (tras importar Sheets):", e);
+      }
+
       // Prevent immediate write-back after loading data from Sheets.
       shouldPushChanges.current = false;
-      setEstablishments(imported);
+      setEstablishments(merged);
       setConnectionStatus("connected");
       updateSyncTime();
-      toast.success(`${imported.length} establecimientos sincronizados desde Google Sheets`);
+      toast.success(`${merged.length} establecimientos sincronizados desde Google Sheets`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Error al importar";
       toast.error(msg);
@@ -230,6 +258,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
       console.error("Import error:", err);
     } finally {
       setIsSyncing(false);
+    }
+    };
+
+    const p = run();
+    importInFlightRef.current = p;
+    try {
+      await p;
+    } finally {
+      importInFlightRef.current = null;
     }
   }, [connectedSheetId, connectedSheetTab]);
 
@@ -338,6 +375,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
       await invokeGoogleSheets(writeBody);
 
+      try {
+        await upsertEstablishmentsToSupabase(connectedSheetId, connectedSheetTab.trim(), source);
+      } catch (e) {
+        console.warn("Supabase (tras exportar a Sheets):", e);
+      }
+
       setConnectionStatus("connected");
       updateSyncTime();
       if (!silent) {
@@ -355,16 +398,22 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   }, [connectedSheetId, connectedSheetTab, establishments]);
 
+  const importFromSheetsRef = useRef(importFromSheets);
+  importFromSheetsRef.current = importFromSheets;
+  const exportToSheetsRef = useRef(exportToSheets);
+  exportToSheetsRef.current = exportToSheets;
+
   const saveToSheets = useCallback(async (rowsOverride?: Establishment[]) => {
     await exportToSheets(false, rowsOverride);
   }, [exportToSheets]);
 
   const connectToSheet = useCallback(async (sheetId: string, sheetTab?: string) => {
+    const tabToUse = sheetTab !== undefined ? sheetTab.trim() : connectedSheetTab.trim();
+    sheetImportHandledRef.current = `${sheetId.trim()}|${tabToUse}`;
     setConnectedSheetId(sheetId);
     if (sheetTab !== undefined) {
       setConnectedSheetTab(sheetTab);
     }
-    const tabToUse = sheetTab !== undefined ? sheetTab.trim() : connectedSheetTab.trim();
     await importFromSheets(sheetId, tabToUse);
   }, [importFromSheets, connectedSheetTab]);
 
@@ -414,32 +463,55 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   }, [connectedSheetId, connectedSheetTab]);
 
-  // Auto-sync on app load
+  // Carga rápida desde Supabase; solo importa desde Sheets al abrir si no hay caché en BD.
   useEffect(() => {
-    if (autoSync && connectedSheetId && !didAutoSync.current) {
-      didAutoSync.current = true;
-      importFromSheets();
+    let cancelled = false;
+    const sheetId = connectedSheetId.trim();
+    if (!sheetId) {
+      setEstablishments([]);
+      sheetImportHandledRef.current = "";
+      return;
     }
-  }, [autoSync, connectedSheetId, importFromSheets]);
+    const tab = connectedSheetTab.trim();
+    const sheetKey = `${sheetId}|${tab}`;
 
-  // Hourly sync to avoid syncing on every local change (improves UI responsiveness).
+    (async () => {
+      const fromDb = await fetchEstablishmentsFromSupabase(sheetId, tab);
+      if (cancelled) return;
+      if (fromDb.length > 0) {
+        shouldPushChanges.current = false;
+        setEstablishments(fromDb);
+        setConnectionStatus("connected");
+        sheetImportHandledRef.current = sheetKey;
+      } else if (autoSync) {
+        if (sheetImportHandledRef.current === sheetKey) return;
+        sheetImportHandledRef.current = sheetKey;
+        await importFromSheetsRef.current();
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [connectedSheetId, connectedSheetTab, autoSync]);
+
+  // Hourly sync: refs keep the interval stable so edits to establishments
+  // (which recreate exportToSheets) do not reset the timer.
   useEffect(() => {
     if (!autoSync || !connectedSheetId) return;
 
     const runSync = () => {
-      // If there are pending local edits, push them first.
       if (shouldPushChanges.current) {
         shouldPushChanges.current = false;
-        exportToSheets(true);
+        void exportToSheetsRef.current(true);
         return;
       }
-      // Otherwise pull latest rows from Sheets.
-      importFromSheets();
+      void importFromSheetsRef.current();
     };
 
     const interval = setInterval(runSync, HOURLY_SYNC_MS);
     return () => clearInterval(interval);
-  }, [autoSync, connectedSheetId, connectedSheetTab, exportToSheets, importFromSheets]);
+  }, [autoSync, connectedSheetId]);
 
   return (
     <DataContext.Provider value={{

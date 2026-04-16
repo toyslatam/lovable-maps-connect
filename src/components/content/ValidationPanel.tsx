@@ -16,7 +16,8 @@ export type ValidationPanelProps = {
   dbDetail: string;
   dbOk: boolean;
   dbWarn: boolean;
-  phoneCompareDetail: string;
+  /** Coincide | No coincide | Sin dato */
+  phoneCompareStatus: string;
   phoneCompareOk: boolean;
   phoneCompareWarn: boolean;
 };
@@ -66,7 +67,7 @@ export function ValidationPanel({
   dbDetail,
   dbOk,
   dbWarn,
-  phoneCompareDetail,
+  phoneCompareStatus,
   phoneCompareOk,
   phoneCompareWarn,
 }: ValidationPanelProps) {
@@ -80,7 +81,7 @@ export function ValidationPanel({
       <div className="rounded-md border border-border/80 bg-card/90 p-3">
         <p className="text-xs font-medium text-muted-foreground">Harina vs levadura (ratio)</p>
         <p className="mt-1 text-lg font-semibold tabular-nums">
-          {ratio === null ? "—" : ratio.toFixed(4)}
+          {ratio !== null && Number.isFinite(ratio) ? ratio.toFixed(4) : "—"}
         </p>
         <p className="mt-1 text-[11px] text-muted-foreground">{ratioRuleLabel}</p>
       </div>
@@ -115,9 +116,9 @@ export function ValidationPanel({
           ok={phoneCompareOk}
           warn={phoneCompareWarn}
           detail={
-            phoneCompareDetail === "Coincide"
+            phoneCompareStatus === "Coincide"
               ? "Cantidades alineadas (±15%)."
-              : phoneCompareDetail === "No coincide"
+              : phoneCompareStatus === "No coincide"
                 ? "Diferencias por encima del umbral."
                 : "Sin datos comparables."
           }

@@ -44,6 +44,8 @@ export function CantidadesCard({
   lineStatus,
   footerHint,
 }: CantidadesCardProps) {
+  const safeUnit = FLOUR_UNIT_OPTIONS.some((o) => o.value === unit) ? unit : "kg";
+
   const border =
     lineStatus === "ok"
       ? "border-emerald-500/25 bg-emerald-500/[0.03]"
@@ -63,7 +65,7 @@ export function CantidadesCard({
           className="h-9 max-w-[7rem] font-mono text-sm tabular-nums"
           aria-label={`${title} cantidad`}
         />
-        <Select value={unit} onValueChange={onUnitChange}>
+        <Select value={safeUnit} onValueChange={onUnitChange}>
           <SelectTrigger className="h-9 w-[6.5rem] shrink-0 text-xs" aria-label={`${title} unidad`}>
             <SelectValue />
           </SelectTrigger>

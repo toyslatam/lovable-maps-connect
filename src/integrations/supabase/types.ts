@@ -14,7 +14,33 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      establishments: {
+        Row: {
+          id: string
+          spreadsheet_id: string
+          sheet_tab: string
+          sheet_row_number: number
+          payload: Json
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          spreadsheet_id: string
+          sheet_tab?: string
+          sheet_row_number: number
+          payload: Json
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          spreadsheet_id?: string
+          sheet_tab?: string
+          sheet_row_number?: number
+          payload?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

@@ -33,7 +33,7 @@ export function ContentAdvancedFilters({
     <Accordion
       type="single"
       collapsible
-      value={openSection === ACCORDION_VALUE ? ACCORDION_VALUE : undefined}
+      value={openSection === ACCORDION_VALUE ? ACCORDION_VALUE : ""}
       onValueChange={(v) => onOpenSectionChange(v === ACCORDION_VALUE ? ACCORDION_VALUE : "")}
       className="bg-card/30 px-3 sm:px-4"
     >

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useData } from "@/context/DataContext";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,28 @@ const extractSheetId = (value: string) => {
   return trimmed;
 };
 
+const SHEET_TABS_CACHE_KEY = "geotrack_sheet_tabs_cache";
+
+function readTabsCache(sheetId: string): string[] | null {
+  try {
+    const raw = localStorage.getItem(SHEET_TABS_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { sheetId?: string; tabs?: unknown };
+    if (parsed.sheetId !== sheetId || !Array.isArray(parsed.tabs)) return null;
+    return parsed.tabs.filter((t): t is string => typeof t === "string" && t.length > 0);
+  } catch {
+    return null;
+  }
+}
+
+function writeTabsCache(sheetId: string, tabs: string[]) {
+  try {
+    localStorage.setItem(SHEET_TABS_CACHE_KEY, JSON.stringify({ sheetId, tabs }));
+  } catch {
+    /* ignore quota */
+  }
+}
+
 const ConnectionsModule = () => {
   const {
     connectToSheet,
@@ -51,9 +73,46 @@ const ConnectionsModule = () => {
   const [loadingTabs, setLoadingTabs] = useState(false);
   const [tabOptions, setTabOptions] = useState<string[]>([]);
 
+  const tabOptionsForSelect = useMemo(() => {
+    if (!connectedSheetTab || tabOptions.includes(connectedSheetTab)) {
+      return tabOptions;
+    }
+    return [connectedSheetTab, ...tabOptions];
+  }, [tabOptions, connectedSheetTab]);
+
   useEffect(() => {
     setSheetInput(connectedSheetId);
   }, [connectedSheetId]);
+
+  // Restaurar pestañas desde caché y refrescar en segundo plano cuando ya hay libro guardado.
+  useEffect(() => {
+    const id = connectedSheetId.trim();
+    if (!id) {
+      setTabOptions([]);
+      return;
+    }
+
+    const cached = readTabsCache(id);
+    if (cached?.length) {
+      setTabOptions(cached);
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const titles = await loadSheetTabs(id);
+        if (cancelled || !titles.length) return;
+        setTabOptions(titles);
+        writeTabsCache(id, titles);
+      } catch {
+        // Mantener caché / lista vacía; el usuario puede usar "Cargar pestañas".
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [connectedSheetId, loadSheetTabs]);
 
   const handleTestConnection = async () => {
     setTesting(true);
@@ -82,6 +141,7 @@ const ConnectionsModule = () => {
     try {
       const titles = await loadSheetTabs(parsedId);
       setTabOptions(titles);
+      writeTabsCache(parsedId, titles);
       if (titles.length === 0) {
         toast.warning("No se encontraron pestañas en este libro");
         return;
@@ -149,7 +209,8 @@ const ConnectionsModule = () => {
             <div className="space-y-0.5">
               <p className="text-sm font-medium">Sincronización automática</p>
               <p className="text-xs text-muted-foreground">
-                Mantener la app sincronizada con tu hoja conectada
+                Con el interruptor activo, la app intenta sincronizar con la hoja cada 1 hora
+                (importar cambios o enviar ediciones locales pendientes), para no saturar la API.
               </p>
             </div>
             <Switch
@@ -194,18 +255,25 @@ const ConnectionsModule = () => {
           <div className="space-y-2">
             <Label className="text-sm font-medium">Pestaña del libro (hoja)</Label>
             <p className="text-xs text-muted-foreground">
-              Después de &quot;Cargar pestañas&quot;, elige en qué pestaña están las columnas A-G. Si no eliges, se usa la primera hoja del libro.
+              Si ya conectaste antes, las pestañas se recuerdan en este navegador o se recargan solas.
+              Elige en qué pestaña están las columnas A-G. Si no eliges, se usa la primera hoja del libro.
             </p>
             <Select
               value={connectedSheetTab || "__first__"}
               onValueChange={(v) => setConnectedSheetTab(v === "__first__" ? "" : v)}
             >
               <SelectTrigger className="w-full sm:max-w-md">
-                <SelectValue placeholder={tabOptions.length ? "Elige una pestaña" : "Carga pestañas primero (opcional)"} />
+                <SelectValue
+                  placeholder={
+                    tabOptionsForSelect.length
+                      ? "Elige una pestaña"
+                      : "Sin pestañas aún — usa Cargar pestañas o conecta el libro"
+                  }
+                />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__first__">Primera hoja (predeterminado)</SelectItem>
-                {tabOptions.map((t) => (
+                {tabOptionsForSelect.map((t) => (
                   <SelectItem key={t} value={t}>
                     {t}
                   </SelectItem>

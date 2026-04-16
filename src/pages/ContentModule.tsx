@@ -7,7 +7,6 @@ import { useData } from "@/context/DataContext";
 import { Establishment } from "@/types/establishment";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 import { getEstablishmentKey, loadPhoneContentMap, phoneTextToKg } from "@/lib/phoneContent";
@@ -19,7 +18,7 @@ import { CantidadesCard } from "@/components/content/CantidadesCard";
 import type { LineStatus } from "@/components/content/CantidadesCard";
 import { LevadurasGrid } from "@/components/content/LevadurasGrid";
 import { GlobalOutcomeBadge, ValidationPanel } from "@/components/content/ValidationPanel";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { ContentModalErrorBoundary } from "@/components/content/ContentModalErrorBoundary";
 
 const CONTENT_STATUS_OPTIONS = PHONE_STATUS_OPTIONS;
 
@@ -459,7 +458,7 @@ export default function ContentModule() {
       .sort(([a], [b]) => a.localeCompare(b, "es"))
       .map(([surveyor, rows]) => ({
         surveyor,
-        rows: rows.sort((a, b) => a.name.localeCompare(b.name, "es")),
+        rows: rows.sort((a, b) => (a.name || "").localeCompare(b.name || "", "es")),
       }));
   }, [filteredRows]);
 
@@ -478,6 +477,24 @@ export default function ContentModule() {
     if (!selectedId) return null;
     return establishments.find((r) => r.id === selectedId) || null;
   }, [selectedId, establishments]);
+
+  /** Radix Select exige que `value` exista en algún `SelectItem`; la hoja puede traer estados extra. */
+  const headerContentStatusOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    const add = (raw: string) => {
+      const t = (raw || "").trim();
+      // Evitar duplicar el ítem reservado del Select (Radix rompe con dos value="__empty__").
+      if (!t || seen.has(t) || t === "__empty__") return;
+      seen.add(t);
+      out.push(t);
+    };
+    for (const s of CONTENT_STATUS_OPTIONS) add(s);
+    add(contentStatus);
+    add(selected?.contentStatus || "");
+    return out;
+  }, [contentStatus, selected?.contentStatus, selected?.id]);
+
   const phoneEntry = selected ? phoneMap[getEstablishmentKey(selected)] : undefined;
 
   const photoCandidates = useMemo(() => getPhotoCandidates(selected?.facadePhotoUrl || ""), [selected?.facadePhotoUrl]);
@@ -813,7 +830,7 @@ export default function ContentModule() {
       autosaveRowIdRef.current = null;
       return;
     }
-    setContentStatus(selected.contentStatus || "");
+    setContentStatus((selected.contentStatus || "").trim());
     const f = parseInitialNumAndUnit(selected.flourTotalText || "", selected.flourUnitBE);
     setFlourNum(f.num);
     setFlourUnit(f.unit);
@@ -1153,10 +1170,11 @@ export default function ContentModule() {
       </div>
 
       <Dialog open={!!selected} onOpenChange={(open) => { if (!open) setSelectedId(null); }}>
-        <DialogContent className="relative flex max-h-[min(90vh,920px)] max-w-5xl flex-col gap-0 overflow-hidden p-0">
+        <DialogContent className="flex max-h-[min(92vh,900px)] w-[min(100vw-1.5rem,56rem)] max-w-5xl flex-col gap-0 overflow-hidden p-0 sm:rounded-lg">
           {!selected || !selectedForRules ? null : (
-            <TooltipProvider delayDuration={200}>
-              <div className="max-h-[min(90vh,920px)] overflow-y-auto p-5 pb-28 sm:p-6">
+            <ContentModalErrorBoundary key={selected.id} onClose={() => setSelectedId(null)}>
+              <div className="flex max-h-[min(92vh,900px)] flex-col bg-background">
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 pb-4 sm:p-6 sm:pb-6">
                 <DialogHeader className="sr-only">
                   <DialogTitle>Validación de contenido · {selected.name}</DialogTitle>
                 </DialogHeader>
@@ -1166,11 +1184,11 @@ export default function ContentModule() {
                 </div>
 
                 <HeaderContenido
-                  name={selected.name}
+                  name={selected.name || "Sin nombre"}
                   address={selected.address || ""}
                   city={selected.city || ""}
                   businessTypeRaw={selected.businessTypeText || selected.notes || ""}
-                  contentStatusOptions={CONTENT_STATUS_OPTIONS}
+                  contentStatusOptions={headerContentStatusOptions}
                   contentStatus={contentStatus}
                   onContentStatusChange={setContentStatus}
                   onSaveStatus={handleSaveContentStatus}
@@ -1280,7 +1298,7 @@ export default function ContentModule() {
                       dbDetail={dbDetail}
                       dbOk={dbOk}
                       dbWarn={dbWarn}
-                      phoneCompareDetail={phoneCompareDetail}
+                      phoneCompareStatus={phoneCompareStatus}
                       phoneCompareOk={phoneCompareOk}
                       phoneCompareWarn={phoneCompareWarn}
                     />
@@ -1333,28 +1351,29 @@ export default function ContentModule() {
                     <p className="mt-2 break-all text-[10px] text-muted-foreground">{selected.facadePhotoUrl || "—"}</p>
                   </div>
                 </div>
-              </div>
+                </div>
 
-              <div className="absolute bottom-0 left-0 right-0 border-t border-border/80 bg-background/90 px-4 py-3 shadow-[0_-8px_30px_rgba(0,0,0,0.06)] backdrop-blur-md supports-[backdrop-filter]:bg-background/75">
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-                  <span className="transition-opacity duration-300">
-                    {sheetSyncState === "saving"
-                      ? "Sincronizando cantidades y levaduras con Google Sheets…"
-                      : sheetSyncState === "saved"
-                        ? "Cambios guardados en Sheets y en este dispositivo."
-                        : sheetSyncState === "error"
-                          ? "No se pudo escribir en Sheets; revisa conexión o vuelve a editar."
-                          : "Los cambios se guardan solos unos segundos después de editar."}
-                  </span>
-                  <span className="font-mono text-[10px] opacity-70" title="Resumen levadura ponderada">
-                    Lev.Σ ≈ {yeastTotalKg.toFixed(2)} kg
-                    {ratioDecimal !== null && yeastQualityStatus !== "No aplica"
-                      ? ` · ratio ${ratioDecimal.toFixed(4)}`
-                      : ""}
-                  </span>
+                <div className="shrink-0 border-t border-border/80 bg-muted/30 px-4 py-2.5 sm:px-6">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                    <span>
+                      {sheetSyncState === "saving"
+                        ? "Sincronizando con Google Sheets…"
+                        : sheetSyncState === "saved"
+                          ? "Guardado en Sheets y en este dispositivo."
+                          : sheetSyncState === "error"
+                            ? "Error al escribir en Sheets."
+                            : "Se guarda solo unos segundos después de editar."}
+                    </span>
+                    <span className="font-mono tabular-nums opacity-80" title="Levadura total ponderada">
+                      Σ lev ≈ {Number.isFinite(yeastTotalKg) ? yeastTotalKg.toFixed(2) : "—"} kg
+                      {ratioDecimal !== null && Number.isFinite(ratioDecimal) && yeastQualityStatus !== "No aplica"
+                        ? ` · r ${ratioDecimal.toFixed(4)}`
+                        : ""}
+                    </span>
+                  </div>
                 </div>
               </div>
-            </TooltipProvider>
+            </ContentModalErrorBoundary>
           )}
         </DialogContent>
       </Dialog>
