@@ -102,7 +102,7 @@ const UsersModule = () => {
       <div className="reveal-up">
         <h1 className="text-2xl font-bold">Gestión de usuarios</h1>
         <p className="text-muted-foreground text-sm mt-1">
-          Administra el directorio de usuarios para asignaciones
+          Administra el directorio de usuarios para asignaciones de actividades
         </p>
       </div>
 
